@@ -1,0 +1,1446 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DropP2P - 網頁版 P2P 極速傳送</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- PeerJS for WebRTC wrapper -->
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+  <!-- QRCode.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  
+  <style>
+    /* 玻璃擬物背景與動態脈衝特效 */
+    @keyframes pulse-ring {
+      0% { transform: scale(0.65); opacity: 0; }
+      50% { opacity: 0.25; }
+      100% { transform: scale(2.2); opacity: 0; }
+    }
+    .pulse {
+      position: absolute;
+      border: 2px solid rgba(139, 92, 246, 0.4);
+      border-radius: 50%;
+    }
+    .pulse-1 { animation: pulse-ring 4s cubic-bezier(0.215, 0.610, 0.355, 1) infinite; }
+    .pulse-2 { animation: pulse-ring 4s cubic-bezier(0.215, 0.610, 0.355, 1) infinite; animation-delay: 1.5s; }
+    .pulse-3 { animation: pulse-ring 4s cubic-bezier(0.215, 0.610, 0.355, 1) infinite; animation-delay: 3s; }
+
+    /* 玻璃擬物卡片 */
+    .glass-card {
+      background: rgba(15, 23, 42, 0.6);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .glass-card-hover {
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .glass-card-hover:hover {
+      background: rgba(15, 23, 42, 0.75);
+      border-color: rgba(139, 92, 246, 0.3);
+      box-shadow: 0 10px 30px -5px rgba(139, 92, 246, 0.15);
+    }
+
+    /* 隱藏滾動條 */
+    .no-scrollbar::-webkit-scrollbar {
+      display: none;
+    }
+    .no-scrollbar {
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    }
+
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: rgba(15, 23, 42, 0.3);
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(139, 92, 246, 0.3);
+      border-radius: 3px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(139, 92, 246, 0.6);
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col font-sans selection:bg-violet-500 selection:text-white overflow-x-hidden">
+
+  <!-- 頂部導航欄 -->
+  <header class="glass-card sticky top-0 z-40 border-b border-slate-800/80 px-4 py-3 sm:px-6">
+    <div class="max-w-7xl mx-auto flex items-center justify-between">
+      <div class="flex items-center space-x-3">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-violet-600 to-fuchsia-600 flex items-center justify-center shadow-lg shadow-violet-500/20">
+          <i data-lucide="zap" class="w-6 h-6 text-white"></i>
+        </div>
+        <div>
+          <h1 class="text-lg font-bold tracking-tight bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent">DropP2P</h1>
+          <p class="text-xs text-slate-400 hidden sm:block">無需上傳雲端，基於 WebRTC 的瀏覽器極速直連傳檔</p>
+        </div>
+      </div>
+
+      <!-- 個人裝置與控制項 -->
+      <div class="flex items-center space-x-3">
+        <div id="my-device-info" class="hidden sm:flex flex-col items-end mr-2">
+          <span class="text-[10px] uppercase font-bold text-slate-500 tracking-wider">您的裝置</span>
+          <span id="my-nickname-display" class="text-sm font-semibold text-violet-400">正在獲取暱稱...</span>
+        </div>
+        
+        <button id="btn-invite" class="flex items-center space-x-1.5 bg-violet-600 hover:bg-violet-500 text-white text-xs sm:text-sm font-medium px-3.5 py-2 rounded-xl transition duration-200 active:scale-95 shadow-lg shadow-violet-600/25">
+          <i data-lucide="share-2" class="w-4 h-4"></i>
+          <span>分享連線</span>
+        </button>
+        
+        <button id="btn-help" class="w-9 h-9 rounded-xl bg-slate-800 hover:bg-slate-700 flex items-center justify-center text-slate-300 transition duration-150 active:scale-95 border border-slate-700/50">
+          <i data-lucide="help-circle" class="w-5 h-5"></i>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- 手機端專用 Tab 切換器 (在 lg 以下螢幕顯示) -->
+  <div class="flex lg:hidden bg-slate-900/80 border-b border-slate-800 p-1.5 sticky top-[65px] z-30 backdrop-blur-md">
+    <button id="tab-radar" class="flex-1 py-2.5 text-center text-sm font-medium rounded-lg bg-violet-600/20 text-violet-400 transition">
+      <span class="flex items-center justify-center gap-2">
+        <i data-lucide="radio" class="w-4 h-4"></i> 周邊裝置雷達
+      </span>
+    </button>
+    <button id="tab-console" class="flex-1 py-2.5 text-center text-sm font-medium rounded-lg text-slate-400 hover:text-slate-200 transition">
+      <span class="flex items-center justify-center gap-2">
+        <i data-lucide="send" class="w-4 h-4"></i> 傳輸控制面板
+      </span>
+    </button>
+  </div>
+
+  <!-- 主要內容區 -->
+  <main class="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+    
+    <!-- 左側：周邊裝置雷達面板 -->
+    <section id="panel-radar-container" class="lg:col-span-5 flex flex-col space-y-4">
+      <div class="glass-card rounded-2xl p-5 flex-1 flex flex-col justify-between min-h-[420px] lg:min-h-[500px] relative overflow-hidden">
+        
+        <!-- 面板頭部 -->
+        <div class="relative z-10 flex items-center justify-between mb-2">
+          <div class="flex items-center space-x-2">
+            <span class="flex h-2.5 w-2.5 relative">
+              <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+            </span>
+            <h2 class="font-bold text-slate-200">雷達偵測中</h2>
+          </div>
+          <span class="text-xs text-slate-400">點擊裝置發送文件</span>
+        </div>
+
+        <!-- 修正後的手動 ID 直連輸入區 -->
+        <div class="relative z-10 bg-slate-900/80 border border-slate-850 p-3.5 rounded-xl mb-3">
+          <p class="text-xs text-slate-400 mb-2">手動連接遠端裝置 ID：</p>
+          <div class="flex gap-2">
+            <input type="text" id="input-peer-id" placeholder="貼上遠端的 Peer ID..." class="flex-1 bg-slate-950 border border-slate-700/60 text-slate-200 text-xs px-3 py-2.5 rounded-lg focus:outline-none focus:border-violet-500 transition placeholder:text-slate-600 font-mono">
+            <button id="btn-connect" class="bg-violet-600 hover:bg-violet-500 disabled:bg-slate-800 disabled:text-slate-500 text-white text-xs font-semibold px-4 py-2.5 rounded-lg transition active:scale-95 flex items-center gap-1 shrink-0">
+              <i data-lucide="plus" class="w-3.5 h-3.5" id="icon-connect"></i>
+              <span id="btn-connect-text">連接</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 雷達中心波動視覺 -->
+        <div class="flex-1 flex flex-col items-center justify-center relative py-6">
+          <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <div class="pulse pulse-1 w-[260px] h-[260px]"></div>
+            <div class="pulse pulse-2 w-[260px] h-[260px]"></div>
+            <div class="pulse pulse-3 w-[260px] h-[260px]"></div>
+          </div>
+
+          <!-- 本機設備球體 -->
+          <div class="relative z-10 flex flex-col items-center">
+            <div class="w-22 h-22 rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-600 flex flex-col items-center justify-center shadow-xl shadow-violet-500/20 border-4 border-slate-900/90 cursor-default">
+              <i data-lucide="laptop" class="w-9 h-9 text-white"></i>
+            </div>
+            <span class="text-xs font-medium px-2.5 py-1 rounded-full bg-violet-950/80 text-violet-300 border border-violet-800/60 mt-3 max-w-[150px] truncate text-center" id="my-nickname-radar">您的裝置</span>
+          </div>
+        </div>
+
+        <!-- 在線夥伴列表 -->
+        <div class="relative z-10 mt-4 border-t border-slate-800/80 pt-4">
+          <h3 class="text-xs font-semibold text-slate-400 tracking-wider uppercase mb-3 flex items-center justify-between">
+            <span>已連線的對等端 (<span id="peer-count">0</span>)</span>
+            <span class="text-[10px] text-violet-400 normal-case">請先點選一個裝置進行傳送</span>
+          </h3>
+          <div id="peers-grid" class="grid grid-cols-2 gap-2.5 max-h-[160px] overflow-y-auto pr-1 no-scrollbar">
+            <div id="no-peers-hint" class="col-span-2 py-4 text-center text-xs text-slate-500">
+              暫無連線中的裝置。請點擊上方「分享連線」按鈕發送邀請連結。
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- 右側：傳輸控制與列表面板 -->
+    <section id="panel-console-container" class="lg:col-span-7 flex flex-col space-y-6 hidden lg:flex">
+      
+      <div class="glass-card rounded-2xl p-5 flex flex-col space-y-5">
+        
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <!-- 發送目標 -->
+          <div class="flex flex-col space-y-2">
+            <label class="text-xs font-semibold text-slate-400 flex items-center gap-1">
+              <i data-lucide="user" class="w-3.5 h-3.5"></i> 發送對象
+            </label>
+            <div class="relative">
+              <select id="select-target-peer" class="w-full bg-slate-900 border border-slate-800 text-slate-200 text-sm px-3.5 py-2.5 rounded-xl appearance-none focus:outline-none focus:border-violet-500 transition">
+                <option value="">-- 請選擇在線裝置 --</option>
+              </select>
+              <div class="absolute inset-y-0 right-3 flex items-center pointer-events-none text-slate-500">
+                <i data-lucide="chevron-down" class="w-4 h-4"></i>
+              </div>
+            </div>
+          </div>
+
+          <!-- 傳輸模式 -->
+          <div class="flex flex-col space-y-2">
+            <label class="text-xs font-semibold text-slate-400 flex items-center gap-1">
+              <i data-lucide="sliders" class="w-3.5 h-3.5"></i> 傳輸模式
+            </label>
+            <div class="grid grid-cols-2 bg-slate-900 p-1 border border-slate-800 rounded-xl">
+              <button id="btn-mode-p2p" class="py-1.5 text-center text-xs font-semibold rounded-lg bg-violet-600 text-white transition-all flex items-center justify-center gap-1.5">
+                <i data-lucide="zap" class="w-3.5 h-3.5"></i> 直連 P2P
+              </button>
+              <button id="btn-mode-cloud" class="py-1.5 text-center text-xs font-semibold rounded-lg text-slate-400 hover:text-slate-200 transition-all flex items-center justify-center gap-1.5">
+                <i data-lucide="cloud" class="w-3.5 h-3.5"></i> 雲端暫存
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="bg-violet-950/20 border border-violet-900/30 p-3 rounded-xl" id="mode-tip-container">
+          <p id="mode-tip-text" class="text-xs text-violet-300 leading-relaxed">
+            <strong class="text-violet-200">直連 P2P 模式：</strong>檔案由瀏覽器直接送往接收方，不經過任何伺服器儲存，速度最快、無大小限制且極度安全。
+          </p>
+        </div>
+
+        <!-- 檔案拖曳與選擇區 -->
+        <div id="drop-zone" class="border-2 border-dashed border-slate-850 hover:border-violet-500/80 bg-slate-900/20 rounded-2xl p-8 flex flex-col items-center justify-center text-center cursor-pointer transition-all relative overflow-hidden group">
+          <input type="file" id="file-input" class="hidden" multiple>
+          <div class="w-14 h-14 rounded-2xl bg-slate-800/80 group-hover:bg-violet-600/10 flex items-center justify-center text-slate-300 group-hover:text-violet-400 transition-all mb-4 shadow-inner">
+            <i data-lucide="upload-cloud" class="w-7 h-7"></i>
+          </div>
+          <h4 class="font-bold text-slate-200 group-hover:text-violet-300 transition-all text-sm sm:text-base">拖曳檔案到此處，或點擊瀏覽</h4>
+          <p class="text-xs text-slate-400 mt-1.5 max-w-[320px]">支援選擇多個檔案同步傳輸。P2P 模式無上限限制；雲端模式限制為 5GB。</p>
+        </div>
+
+        <!-- 選取的文件預覽佇列 -->
+        <div id="selected-files-list-container" class="hidden flex flex-col space-y-2 border-t border-slate-800/80 pt-4">
+          <div class="flex items-center justify-between text-xs text-slate-400 mb-1">
+            <span>待傳送文件列表 (<span id="selected-files-count">0</span>)</span>
+            <button id="btn-clear-selected" class="text-red-400 hover:text-red-300 transition">清空列表</button>
+          </div>
+          <div id="selected-files-queue" class="max-h-[140px] overflow-y-auto space-y-1.5 pr-1"></div>
+          
+          <button id="btn-start-transfer" class="w-full bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 text-white font-bold text-sm py-3 rounded-xl transition duration-200 active:scale-[0.98] shadow-lg shadow-violet-600/10 mt-3 flex items-center justify-center gap-2">
+            <i data-lucide="play" class="w-4 h-4 fill-current"></i> 開始分塊傳輸
+          </button>
+        </div>
+
+      </div>
+
+      <!-- 傳輸工作歷史面板 -->
+      <div class="glass-card rounded-2xl p-5 flex flex-col space-y-3 flex-1">
+        <h3 class="font-bold text-slate-200 text-sm tracking-wide flex items-center justify-between">
+          <span>傳輸進度與歷史</span>
+          <span class="text-[10px] text-slate-500 font-normal">歷史記錄將於重新整理後清除</span>
+        </h3>
+        
+        <div id="transfers-container" class="space-y-3 flex-1 overflow-y-auto max-h-[350px] pr-1">
+          <div id="no-transfers-hint" class="h-28 flex flex-col items-center justify-center text-center text-slate-500 border border-dashed border-slate-800/80 rounded-xl">
+            <i data-lucide="inbox" class="w-8 h-8 mb-2 text-slate-600"></i>
+            <p class="text-xs">尚無傳輸任務。選擇檔案並設定目標後，開始傳輸！</p>
+          </div>
+        </div>
+      </div>
+
+    </section>
+
+  </main>
+
+  <!-- 底部版權 -->
+  <footer class="mt-auto py-5 text-center text-xs text-slate-600 border-t border-slate-900/60 glass-card">
+    <p>© 2026 DropP2P. 極速分塊傳輸系統. 基於 PeerJS 穩定版 🚀</p>
+  </footer>
+
+  <!-- ==================== 彈出視窗：分享連線 QR Code ==================== -->
+  <div id="modal-invite" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 hidden">
+    <div class="glass-card w-full max-w-md rounded-2xl p-6 shadow-2xl relative border border-slate-800 animate-in fade-in zoom-in-95 duration-200">
+      <button class="modal-close absolute top-4 right-4 text-slate-400 hover:text-slate-200 transition">
+        <i data-lucide="x" class="w-5 h-5"></i>
+      </button>
+      
+      <div class="flex flex-col items-center text-center">
+        <div class="w-12 h-12 rounded-xl bg-violet-600/10 text-violet-400 flex items-center justify-center mb-4">
+          <i data-lucide="qr-code" class="w-6 h-6"></i>
+        </div>
+        <h3 class="text-lg font-bold text-slate-100">與其他裝置建立連線</h3>
+        <p class="text-xs text-slate-400 mt-1 max-w-[280px]">使用另一台裝置掃描下方 QR Code，或者將此連結傳給對方即可快速連線。</p>
+        
+        <!-- 二維碼 -->
+        <div class="bg-white p-4 rounded-xl mt-5 mb-5 shadow-inner flex justify-center items-center">
+          <div id="qrcode-canvas"></div>
+        </div>
+
+        <!-- 複製連結 -->
+        <div class="w-full flex flex-col space-y-1 text-left">
+          <label class="text-[10px] uppercase font-bold text-slate-500 tracking-wider">邀請網址</label>
+          <div class="flex">
+            <input type="text" id="invite-link-input" readonly class="flex-1 bg-slate-950 border border-slate-700/60 text-xs px-3 py-2.5 rounded-l-lg text-slate-300 focus:outline-none font-mono">
+            <button id="btn-copy-invite" class="bg-violet-600 hover:bg-violet-500 text-white text-xs font-semibold px-4 rounded-r-lg transition active:scale-95">複製</button>
+          </div>
+        </div>
+
+        <div class="w-full mt-4 flex flex-col space-y-1 text-left border-t border-slate-800/80 pt-3">
+          <label class="text-[10px] uppercase font-bold text-slate-500 tracking-wider">您的 Peer ID</label>
+          <div class="flex items-center justify-between bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-800 text-xs">
+            <code id="my-peer-id-text" class="text-violet-300 font-mono">正在獲取...</code>
+            <button id="btn-copy-id" class="text-[10px] text-violet-400 hover:text-violet-300 transition font-bold">複製 ID</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== 彈出視窗：說明與幫助 ==================== -->
+  <div id="modal-help" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 hidden">
+    <div class="glass-card w-full max-w-lg rounded-2xl p-6 shadow-2xl relative border border-slate-800">
+      <button class="modal-close absolute top-4 right-4 text-slate-400 hover:text-slate-200 transition">
+        <i data-lucide="x" class="w-5 h-5"></i>
+      </button>
+
+      <div class="flex items-center space-x-3 border-b border-slate-800 pb-3 mb-4">
+        <i data-lucide="help-circle" class="w-6 h-6 text-violet-400"></i>
+        <h3 class="text-base font-bold text-slate-100">DropP2P 功能說明與指南</h3>
+      </div>
+
+      <div class="space-y-4 text-xs sm:text-sm text-slate-300 leading-relaxed max-h-[400px] overflow-y-auto pr-1">
+        <div>
+          <h4 class="font-bold text-violet-400 mb-1 flex items-center gap-1">
+            <i data-lucide="zap" class="w-4 h-4"></i> 直連 P2P（WebRTC）
+          </h4>
+          <p class="text-slate-400 text-xs">
+            採用端到端加密（End-to-End Encryption）直連傳輸。檔案直接在兩台瀏覽器間透過資料通道（Data Channel）傳遞，完全不經過雲端伺服器，安全保密且下載無速度限制（受限於雙方網路頻寬上限）。適合雙方都在線上且大檔案的極速對傳。
+          </p>
+        </div>
+        <div>
+          <h4 class="font-bold text-violet-400 mb-1 flex items-center gap-1">
+            <i data-lucide="cloud" class="w-4 h-4"></i> 雲端暫存連結模式
+          </h4>
+          <p class="text-slate-400 text-xs">
+            採用免費臨時雲端空間（`tmpfiles.org`）API。檔案將上傳至暫存空間並自動在 60 分鐘後刪除。上傳完成後會生成下載網址與 QR Code，您可以自由分享給第三方，接收方不需要同時保持在線，適合跨平台、離線、或內網 WebRTC 受限的對象。
+          </p>
+        </div>
+        <div>
+          <h4 class="font-bold text-violet-400 mb-1">💡 如何建立 P2P 直連？</h4>
+          <ol class="list-decimal list-inside pl-1 text-slate-400 text-xs space-y-1">
+            <li>裝置 A 點擊右上方「分享連線」，將產生的連結/二維碼發送給裝置 B。</li>
+            <li>裝置 B 開啟連結後，兩台裝置將透過 PeerJS 信令伺服器進行握手。</li>
+            <li>連接成功後，雙方雷達中均會顯示彼此圖示，代表 P2P 信道已打通。</li>
+            <li>此時即可選取文件、選擇對象並開始傳送。</li>
+          </ol>
+        </div>
+        <div class="bg-violet-950/20 border border-violet-900/30 p-2.5 rounded-lg text-xs text-violet-300">
+          <strong>傳輸防卡死小技巧：</strong>本系統內建「流量分塊回堵控制」，當大檔案造成傳輸緩衝區堆積時會自動小幅延遲以維護通道穩定。請勿在傳輸中關閉瀏覽器網頁！
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== 浮動通知提示 (Toast) ==================== -->
+  <div id="toast-container" class="fixed bottom-5 right-5 z-50 flex flex-col space-y-2 max-w-sm w-full pointer-events-none"></div>
+
+  <!-- ==================== 核心 JavaScript 邏輯 ==================== -->
+  <script>
+    // --- 隨機裝置暱稱池 ---
+    function getRandomNickname() {
+      const prefixes = ["太空", "賽博", "極光", "復古", "奇幻", "量子", "元氣", "酷炫", "隱形", "漂流", "烈焰", "幽影", "閃電", "星際", "幻視"];
+      const mascots = ["柴犬", "企鵝", "松鼠", "小龍", "熊貓", "海豚", "黑貓", "考拉", "水豚", "小鳥", "狐狸", "水母", "白鯨", "巨嘴鳥", "樹懶"];
+      return `${prefixes[Math.floor(Math.random() * prefixes.length)]}${mascots[Math.floor(Math.random() * mascots.length)]}`;
+    }
+
+    // --- 檔案位元組格式化 ---
+    function formatBytes(bytes, decimals = 2) {
+      if (bytes === 0) return '0 Bytes';
+      const k = 1024;
+      const dm = decimals < 0 ? 0 : decimals;
+      const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+    }
+
+    // --- 全域變數定義 ---
+    let myPeerId = null;
+    let myNickname = getRandomNickname();
+    let peer = null;
+    
+    // 連線地圖: remotePeerId -> { conn, nickname, status }
+    const connectedPeers = new Map();
+    
+    // 傳輸列表物件對應: transferId -> Object (詳細傳輸資訊與檔案資料)
+    const transfers = {};
+    
+    // 目前選取要傳送的本地檔案列表 (Array of File)
+    let selectedFilesQueue = [];
+    
+    // 傳送任務執行佇列 (UUIDs of transfers)
+    let pendingSendQueue = [];
+    let isSendingQueueActive = false;
+
+    // 接收端暫存區：用於拼接 WebRTC 分塊
+    // fileId -> { filename, size, mime, totalChunks, chunks: [], receivedChunksCount }
+    const receivedChunksAssembler = {};
+
+    // 預設傳輸模式: 'p2p' 或 'cloud'
+    let selectedMode = 'p2p';
+
+    // --- 初始化 UI 元件選取 ---
+    const selectTargetPeer = document.getElementById('select-target-peer');
+    const dropZone = document.getElementById('drop-zone');
+    const fileInput = document.getElementById('file-input');
+    const selectedFilesListContainer = document.getElementById('selected-files-list-container');
+    const selectedFilesQueueEl = document.getElementById('selected-files-queue');
+    const selectedFilesCountEl = document.getElementById('selected-files-count');
+    const btnStartTransfer = document.getElementById('btn-start-transfer');
+    const btnClearSelected = document.getElementById('btn-clear-selected');
+    const transfersContainer = document.getElementById('transfers-container');
+    const noTransfersHint = document.getElementById('no-transfers-hint');
+    const peersGrid = document.getElementById('peers-grid');
+    const peerCountEl = document.getElementById('peer-count');
+    const noPeersHint = document.getElementById('no-peers-hint');
+    
+    const btnModeP2p = document.getElementById('btn-mode-p2p');
+    const btnModeCloud = document.getElementById('btn-mode-cloud');
+    const modeTipText = document.getElementById('mode-tip-text');
+    const modeTipContainer = document.getElementById('mode-tip-container');
+
+    const inputPeerId = document.getElementById('input-peer-id');
+    const btnConnect = document.getElementById('btn-connect');
+    const btnConnectText = document.getElementById('btn-connect-text');
+
+    // 彈出視窗控制
+    const modalInvite = document.getElementById('modal-invite');
+    const modalHelp = document.getElementById('modal-help');
+    const btnInvite = document.getElementById('btn-invite');
+    const btnHelp = document.getElementById('btn-help');
+
+    // --- Toast 提示功能 ---
+    function showToast(message, type = 'info') {
+      const toastContainer = document.getElementById('toast-container');
+      const toast = document.createElement('div');
+      toast.className = `p-3.5 rounded-xl text-xs font-semibold shadow-2xl border flex items-center justify-between space-x-3 pointer-events-auto animate-in slide-in-from-bottom-5 duration-200`;
+      
+      let icon = 'info';
+      if (type === 'success') {
+        toast.className += ' bg-emerald-950/90 text-emerald-300 border-emerald-800/60';
+        icon = 'check-circle';
+      } else if (type === 'error') {
+        toast.className += ' bg-rose-950/90 text-rose-300 border-rose-800/60';
+        icon = 'alert-circle';
+      } else {
+        toast.className += ' bg-slate-900/95 text-slate-200 border-slate-800';
+      }
+
+      toast.innerHTML = `
+        <div class="flex items-center space-x-2">
+          <i data-lucide="${icon}" class="w-4 h-4 shrink-0"></i>
+          <span class="leading-relaxed">${message}</span>
+        </div>
+        <button class="text-slate-400 hover:text-slate-200 transition shrink-0" onclick="this.parentElement.remove()">
+          <i data-lucide="x" class="w-3.5 h-3.5"></i>
+        </button>
+      `;
+      
+      toastContainer.appendChild(toast);
+      lucide.createIcons({ attrs: { class: ['shrink-0'] } });
+      
+      setTimeout(() => {
+        toast.classList.add('animate-out', 'fade-out', 'duration-300');
+        setTimeout(() => toast.remove(), 300);
+      }, 5000);
+    }
+
+    // --- 初始化 PeerJS 核心服務 (使用 100% 穩定的預設配置) ---
+    function initPeerJS() {
+      // 不引入有爭議的自訂 STUN，直接採用官方優化的中繼與尋路
+      peer = new Peer(null, {
+        debug: 1
+      });
+
+      peer.on('open', (id) => {
+        myPeerId = id;
+        
+        document.getElementById('my-nickname-display').innerText = myNickname;
+        document.getElementById('my-nickname-radar').innerText = myNickname;
+        document.getElementById('my-peer-id-text').innerText = id;
+        
+        const inviteUrl = `${window.location.origin}${window.location.pathname}#${id}`;
+        document.getElementById('invite-link-input').value = inviteUrl;
+        
+        const qrcodeContainer = document.getElementById('qrcode-canvas');
+        qrcodeContainer.innerHTML = '';
+        new QRCode(qrcodeContainer, {
+          text: inviteUrl,
+          width: 160,
+          height: 160,
+          colorDark : "#0f172a",
+          colorLight : "#ffffff",
+          correctLevel : QRCode.CorrectLevel.H
+        });
+
+        console.log('PeerJS 連線已成功初始化。ID: ' + id);
+        
+        // 檢查網址 hash 並自動發起連線
+        handleUrlHashConnect();
+      });
+
+      // 監聽傳入的連接（被動接收連線）
+      peer.on('connection', (conn) => {
+        console.log("偵測到遠端主動發起 WebRTC 連線:", conn.peer);
+        setupConnectionHandlers(conn);
+      });
+
+      peer.on('error', (err) => {
+        console.error('PeerJS 錯誤:', err);
+        resetConnectButton();
+        if (err.type === 'peer-not-found') {
+          showToast('找不到了指定的遠端裝置 ID，請確認後重試。', 'error');
+        } else if (err.type === 'unavailable-id') {
+          showToast('此 ID 已被佔用，請重新連接。', 'error');
+        } else {
+          showToast('信令伺服器異常，請重新嘗試：' + err.message, 'error');
+        }
+      });
+    }
+
+    // --- 自動讀取 Hash 進行連線 ---
+    function handleUrlHashConnect() {
+      const hash = window.location.hash.substring(1);
+      if (hash && hash !== myPeerId) {
+        showToast('偵測到邀請連結，正在嘗試建立對等直連...', 'info');
+        connectToPeer(hash);
+      }
+    }
+
+    window.addEventListener('hashchange', () => {
+      handleUrlHashConnect();
+    });
+
+    // --- 主動向遠端發起 WebRTC 連線 ---
+    function connectToPeer(remoteId) {
+      if (!remoteId || remoteId.trim() === '') return;
+      const targetId = remoteId.trim();
+      
+      if (targetId === myPeerId) {
+        showToast('無法連接至自己！請分享連線給其他手機或電腦。', 'error');
+        return;
+      }
+
+      if (connectedPeers.has(targetId)) {
+        showToast('該裝置已存在於連線列表中！', 'info');
+        return;
+      }
+
+      // UI 顯示為連接中，防止用戶重複點擊
+      btnConnect.disabled = true;
+      btnConnectText.innerText = "連接中...";
+      document.getElementById('icon-connect').setAttribute('data-lucide', 'loader');
+      lucide.createIcons();
+
+      showToast(`正在嘗試與裝置建立安全對接通道...`, 'info');
+      const conn = peer.connect(targetId);
+      setupConnectionHandlers(conn);
+    }
+
+    // 重設連接按鈕狀態
+    function resetConnectButton() {
+      btnConnect.disabled = false;
+      btnConnectText.innerText = "連接";
+      document.getElementById('icon-connect').setAttribute('data-lucide', 'plus');
+      lucide.createIcons();
+    }
+
+    // --- 連線事件註冊與維護 (修復 ver14 斷線與不連通的關鍵) ---
+    function setupConnectionHandlers(conn) {
+      
+      // 設定一個 10 秒的連線超時機制，提供優良的用戶回饋
+      let connectionTimeout = setTimeout(() => {
+        if (!conn.open) {
+          console.warn(`與 ${conn.peer} 連線超時`);
+          showToast('連線建立超時！對方可能已關閉網頁，或所屬內網不支援直連。建議改用雲端暫存傳輸模式！', 'error');
+          conn.close();
+          resetConnectButton();
+        }
+      }, 10000);
+
+      // 定義握手和初始化程序 (同時支持即時 open 與事件監聽)
+      const handleOpen = () => {
+        clearTimeout(connectionTimeout);
+        resetConnectButton();
+        
+        console.log("WebRTC 資料通道已開啟，傳送 handshake:", conn.peer);
+        // 主動發送握手協定封包
+        conn.send({
+          type: 'handshake',
+          peerId: myPeerId,
+          nickname: myNickname
+        });
+      };
+
+      // 💥【核心修復】雙重保險檢查！解決 peer.on('connection') 觸發時 conn.open 已經為 true 的情況
+      if (conn.open) {
+        handleOpen();
+      } else {
+        conn.on('open', handleOpen);
+      }
+
+      // 監聽資料傳入
+      conn.on('data', (data) => {
+        handleIncomingMessage(conn, data);
+      });
+
+      // 監聽連線關閉
+      conn.on('close', () => {
+        clearTimeout(connectionTimeout);
+        resetConnectButton();
+        cleanupPeerConnection(conn.peer);
+        showToast(`與遠端裝置 ${connectedPeers.get(conn.peer)?.nickname || '設備'} 的連線已中斷。`, 'info');
+      });
+
+      // 監聽連線異常
+      conn.on('error', (err) => {
+        console.error('DataConnection 發生錯誤:', err);
+        clearTimeout(connectionTimeout);
+        resetConnectButton();
+        cleanupPeerConnection(conn.peer);
+      });
+    }
+
+    // --- 清理中斷的連線 ---
+    function cleanupPeerConnection(peerId) {
+      connectedPeers.delete(peerId);
+      updatePeersUI();
+      
+      // 將所有與此 Peer 相關且正在傳輸的任務設為失敗
+      Object.keys(transfers).forEach(id => {
+        if (transfers[id].peerId === peerId && (transfers[id].status === 'transferring' || transfers[id].status === 'pending')) {
+          transfers[id].status = 'failed';
+          transfers[id].error = '對端中途斷開連線';
+          updateTransferCard(id);
+        }
+      });
+    }
+
+    // --- 解析傳入的二進位或控制訊息 ---
+    function handleIncomingMessage(conn, data) {
+      if (!data || !data.type) return;
+
+      const remotePeerId = conn.peer;
+
+      switch(data.type) {
+        
+        // 握手封包：雙方交換暱稱和 ID
+        case 'handshake':
+          connectedPeers.set(remotePeerId, {
+            conn: conn,
+            nickname: data.nickname || '未命名裝置',
+            status: 'connected'
+          });
+          showToast(`已與對等端「${data.nickname}」安全對接！`, 'success');
+          updatePeersUI();
+          break;
+
+        // 檔案標頭：準備開始接收檔案，初始化切片陣列
+        case 'file-header':
+          const fileId = data.fileId;
+          const fileName = data.filename;
+          const fileSize = data.size;
+          const fileMime = data.mime;
+          const totalChunks = data.totalChunks;
+
+          receivedChunksAssembler[fileId] = {
+            filename: fileName,
+            size: fileSize,
+            mime: fileMime,
+            totalChunks: totalChunks,
+            chunks: [],
+            receivedChunksCount: 0
+          };
+
+          transfers[fileId] = {
+            id: fileId,
+            name: fileName,
+            size: fileSize,
+            type: fileMime,
+            mode: 'p2p',
+            direction: 'receive',
+            progress: 0,
+            bytesTransferred: 0,
+            speed: 0,
+            eta: 0,
+            status: 'transferring',
+            peerId: remotePeerId,
+            peerNickname: connectedPeers.get(remotePeerId)?.nickname || '未知裝置',
+            startTime: Date.now(),
+            lastBytesTransferred: 0,
+            lastTime: Date.now()
+          };
+
+          renderNewTransferCard(fileId);
+          noTransfersHint.classList.add('hidden');
+          break;
+
+        // 檔案二進位分塊 (Chunk)：寫入對應槽
+        case 'file-chunk':
+          const fId = data.fileId;
+          const chunkIndex = data.chunkIndex;
+          const chunkData = data.data; // ArrayBuffer
+
+          const assembler = receivedChunksAssembler[fId];
+          const tr = transfers[fId];
+
+          if (assembler && tr && tr.status === 'transferring') {
+            assembler.chunks[chunkIndex] = chunkData;
+            assembler.receivedChunksCount++;
+
+            tr.bytesTransferred += chunkData.byteLength;
+            tr.progress = Math.min(Math.round((assembler.receivedChunksCount / assembler.totalChunks) * 100), 100);
+
+            // 每隔 15 片更新一次速度和 ETA，降低 CPU 與 DOM 負載
+            if (assembler.receivedChunksCount % 15 === 0 || assembler.receivedChunksCount === assembler.totalChunks) {
+              const now = Date.now();
+              const timeDiff = (now - tr.lastTime) / 1000;
+              if (timeDiff > 0.3) {
+                const byteDiff = tr.bytesTransferred - tr.lastBytesTransferred;
+                tr.speed = byteDiff / timeDiff;
+                const remainingBytes = tr.size - tr.bytesTransferred;
+                tr.eta = tr.speed > 0 ? Math.ceil(remainingBytes / tr.speed) : 0;
+                
+                tr.lastBytesTransferred = tr.bytesTransferred;
+                tr.lastTime = now;
+              }
+            }
+
+            updateTransferCard(fId);
+
+            // 接收完成
+            if (assembler.receivedChunksCount === assembler.totalChunks) {
+              const fileBlob = new Blob(assembler.chunks, { type: assembler.mime });
+              const downloadUrl = URL.createObjectURL(fileBlob);
+
+              tr.status = 'completed';
+              tr.progress = 100;
+              tr.url = downloadUrl;
+              tr.speed = 0;
+              tr.eta = 0;
+              updateTransferCard(fId);
+
+              showToast(`文件「${tr.name}」傳輸完成！`, 'success');
+              delete receivedChunksAssembler[fId];
+            }
+          }
+          break;
+
+        case 'file-cancel':
+          const cancelId = data.fileId;
+          if (transfers[cancelId]) {
+            transfers[cancelId].status = 'failed';
+            transfers[cancelId].error = '對方已取消傳輸';
+            updateTransferCard(cancelId);
+            delete receivedChunksAssembler[cancelId];
+            showToast(`對端已取消文件「${transfers[cancelId].name}」的傳遞`, 'error');
+          }
+          break;
+      }
+    }
+
+    // --- 更新連線設備網格與下拉選單 ---
+    function updatePeersUI() {
+      const selectedValue = selectTargetPeer.value;
+      selectTargetPeer.innerHTML = '<option value="">-- 請選擇在線裝置 --</option>';
+      peersGrid.innerHTML = '';
+      
+      let count = 0;
+
+      connectedPeers.forEach((peerInfo, peerId) => {
+        count++;
+
+        // 填充下拉選單
+        const option = document.createElement('option');
+        option.value = peerId;
+        option.innerText = peerInfo.nickname;
+        selectTargetPeer.appendChild(option);
+
+        // 填充雷達設備清單
+        const peerCard = document.createElement('div');
+        peerCard.className = 'glass-card glass-card-hover p-3 rounded-xl flex items-center space-x-3 cursor-pointer text-left relative animate-in fade-in duration-150';
+        peerCard.innerHTML = `
+          <div class="w-9 h-9 rounded-full bg-violet-600/20 flex items-center justify-center text-violet-400">
+            <i data-lucide="tablet" class="w-4 h-4"></i>
+          </div>
+          <div class="flex-1 min-w-0">
+            <h4 class="text-xs font-semibold text-slate-200 truncate">${peerInfo.nickname}</h4>
+            <span class="text-[10px] text-emerald-400 font-mono">已就緒</span>
+          </div>
+          <div class="absolute right-2 top-2 bg-emerald-500 w-2 h-2 rounded-full"></div>
+        `;
+
+        peerCard.addEventListener('click', () => {
+          selectTargetPeer.value = peerId;
+          showToast(`已鎖定發送對象：「${peerInfo.nickname}」`, 'info');
+          
+          if (window.innerWidth < 1024) {
+            switchToConsoleTab();
+          }
+        });
+
+        peersGrid.appendChild(peerCard);
+      });
+
+      if (connectedPeers.has(selectedValue)) {
+        selectTargetPeer.value = selectedValue;
+      }
+
+      peerCountEl.innerText = count;
+
+      if (count > 0) {
+        noPeersHint.classList.add('hidden');
+      } else {
+        peersGrid.appendChild(noPeersHint);
+        noPeersHint.classList.remove('hidden');
+      }
+
+      lucide.createIcons();
+    }
+
+    // --- 設定傳輸模式 (直連/雲端) ---
+    btnModeP2p.addEventListener('click', () => {
+      selectedMode = 'p2p';
+      btnModeP2p.className = 'py-1.5 text-center text-xs font-semibold rounded-lg bg-violet-600 text-white transition-all flex items-center justify-center gap-1.5';
+      btnModeCloud.className = 'py-1.5 text-center text-xs font-semibold rounded-lg text-slate-400 hover:text-slate-200 transition-all flex items-center justify-center gap-1.5';
+      modeTipContainer.className = 'bg-violet-950/20 border border-violet-900/30 p-3 rounded-xl';
+      modeTipText.innerHTML = `<strong class="text-violet-200">直連 P2P 模式：</strong>檔案由瀏覽器直接送往接收方，不經過任何伺服器儲存，速度最快、無大小限制且極度安全。`;
+    });
+
+    btnModeCloud.addEventListener('click', () => {
+      selectedMode = 'cloud';
+      btnModeCloud.className = 'py-1.5 text-center text-xs font-semibold rounded-lg bg-violet-600 text-white transition-all flex items-center justify-center gap-1.5';
+      btnModeP2p.className = 'py-1.5 text-center text-xs font-semibold rounded-lg text-slate-400 hover:text-slate-200 transition-all flex items-center justify-center gap-1.5';
+      modeTipContainer.className = 'bg-fuchsia-950/20 border border-fuchsia-900/30 p-3 rounded-xl';
+      modeTipText.innerHTML = `<strong class="text-fuchsia-200">雲端暫存連結模式：</strong>將檔案暫存至匿名儲存空間並自動在 60 分鐘後銷毀。本機上傳完成即可關閉網頁，對端透過連結即可下載。`;
+    });
+
+    // --- 拖放/選取文件模組 ---
+    dropZone.addEventListener('click', () => fileInput.click());
+
+    dropZone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropZone.classList.add('border-violet-500', 'bg-violet-950/10');
+    });
+
+    dropZone.addEventListener('dragleave', () => {
+      dropZone.classList.remove('border-violet-500', 'bg-violet-950/10');
+    });
+
+    dropZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropZone.classList.remove('border-violet-500', 'bg-violet-950/10');
+      if (e.dataTransfer.files.length > 0) {
+        addFilesToQueue(e.dataTransfer.files);
+      }
+    });
+
+    fileInput.addEventListener('change', () => {
+      if (fileInput.files.length > 0) {
+        addFilesToQueue(fileInput.files);
+      }
+    });
+
+    function addFilesToQueue(filesList) {
+      for (let i = 0; i < filesList.length; i++) {
+        const file = filesList[i];
+        if (selectedMode === 'cloud' && file.size > 5 * 1024 * 1024 * 1024) {
+          showToast(`文件「${file.name}」超過 5GB 雲端模式上限！`, 'error');
+          continue;
+        }
+        selectedFilesQueue.push(file);
+      }
+      updateSelectedFilesQueueUI();
+    }
+
+    function updateSelectedFilesQueueUI() {
+      selectedFilesQueueEl.innerHTML = '';
+      if (selectedFilesQueue.length > 0) {
+        selectedFilesListContainer.classList.remove('hidden');
+        selectedFilesCountEl.innerText = selectedFilesQueue.length;
+
+        selectedFilesQueue.forEach((file, index) => {
+          const item = document.createElement('div');
+          item.className = 'flex items-center justify-between bg-slate-900/70 border border-slate-800/80 p-2.5 rounded-xl text-xs';
+          item.innerHTML = `
+            <div class="flex items-center space-x-2.5 min-w-0">
+              <i data-lucide="${getFileIconName(file.type)}" class="w-4 h-4 text-slate-400 shrink-0"></i>
+              <div class="truncate">
+                <p class="font-semibold text-slate-200 truncate">${file.name}</p>
+                <p class="text-[10px] text-slate-500">${formatBytes(file.size)}</p>
+              </div>
+            </div>
+            <button class="text-slate-500 hover:text-red-400 transition" onclick="removeFileFromQueue(${index})">
+              <i data-lucide="x" class="w-4 h-4"></i>
+            </button>
+          `;
+          selectedFilesQueueEl.appendChild(item);
+        });
+        lucide.createIcons();
+      } else {
+        selectedFilesListContainer.classList.add('hidden');
+      }
+    }
+
+    window.removeFileFromQueue = function(index) {
+      selectedFilesQueue.splice(index, 1);
+      updateSelectedFilesQueueUI();
+    };
+
+    btnClearSelected.addEventListener('click', () => {
+      selectedFilesQueue = [];
+      updateSelectedFilesQueueUI();
+    });
+
+    // --- 開始進行佇列傳輸 ---
+    btnStartTransfer.addEventListener('click', () => {
+      if (selectedFilesQueue.length === 0) {
+        showToast('請先選擇您想要發送的文件！', 'error');
+        return;
+      }
+
+      const targetId = selectTargetPeer.value;
+      if (selectedMode === 'p2p' && !targetId) {
+        showToast('直連 P2P 模式下，請先選擇一個接收目標裝置！', 'error');
+        return;
+      }
+
+      selectedFilesQueue.forEach(file => {
+        const transferId = generateUUID();
+        const trObj = {
+          id: transferId,
+          file: file,
+          name: file.name,
+          size: file.size,
+          type: file.type || 'application/octet-stream',
+          mode: selectedMode,
+          direction: 'send',
+          progress: 0,
+          bytesTransferred: 0,
+          speed: 0,
+          eta: 0,
+          status: 'pending',
+          peerId: selectedMode === 'p2p' ? targetId : null,
+          peerNickname: selectedMode === 'p2p' ? (connectedPeers.get(targetId)?.nickname || '未知裝置') : 'Cloud Node',
+          startTime: Date.now(),
+          lastBytesTransferred: 0,
+          lastTime: Date.now()
+        };
+
+        transfers[transferId] = trObj;
+        renderNewTransferCard(transferId);
+        pendingSendQueue.push(transferId);
+      });
+
+      noTransfersHint.classList.add('hidden');
+      selectedFilesQueue = [];
+      updateSelectedFilesQueueUI();
+
+      processNextSendTask();
+    });
+
+    // --- 佇列輪詢：一個接一個穩定發送 ---
+    async function processNextSendTask() {
+      if (isSendingQueueActive || pendingSendQueue.length === 0) return;
+
+      isSendingQueueActive = true;
+      const activeTransferId = pendingSendQueue.shift();
+      const tr = transfers[activeTransferId];
+
+      if (tr && tr.status === 'pending') {
+        try {
+          if (tr.mode === 'p2p') {
+            tr.status = 'transferring';
+            updateTransferCard(activeTransferId);
+            await performP2PFileTransfer(tr);
+          } else {
+            tr.status = 'transferring';
+            updateTransferCard(activeTransferId);
+            await performCloudUpload(tr);
+          }
+        } catch (err) {
+          console.error(err);
+          tr.status = 'failed';
+          tr.error = err.message || '傳輸失敗';
+          updateTransferCard(activeTransferId);
+          showToast(`「${tr.name}」傳輸失敗：${err.message}`, 'error');
+        }
+      }
+
+      isSendingQueueActive = false;
+      processNextSendTask();
+    }
+
+    // --- 核心 WebRTC 分塊傳送 (雙層緩衝區檢查確保 100% 成功率) ---
+    async function performP2PFileTransfer(tr) {
+      const connInfo = connectedPeers.get(tr.peerId);
+      if (!connInfo || !connInfo.conn.open) {
+        throw new Error('與目標裝置的 WebRTC 信道已關閉。');
+      }
+
+      const conn = connInfo.conn;
+      const file = tr.file;
+
+      const chunkSize = 16384; 
+      const totalChunks = Math.ceil(file.size / chunkSize);
+
+      conn.send({
+        type: 'file-header',
+        fileId: tr.id,
+        filename: file.name,
+        size: file.size,
+        mime: file.type || 'application/octet-stream',
+        totalChunks: totalChunks
+      });
+
+      let offset = 0;
+      
+      for (let i = 0; i < totalChunks; i++) {
+        // 💥【核心修復】雙重相容性 BufferedAmount 流量限制！避免溢出中斷
+        // 部分 PeerJS 版本在 WebRTC 核心下的對象為 _dc，部分為 dataChannel
+        const dc = conn.dataChannel || conn._dc;
+        while (dc && dc.bufferedAmount > 256 * 1024) { 
+          await new Promise(resolve => setTimeout(resolve, 25));
+        }
+
+        if (!conn.open || (dc && dc.readyState !== 'open')) {
+          throw new Error('發送中連線意外中斷。');
+        }
+
+        if (transfers[tr.id].status === 'failed') {
+          conn.send({ type: 'file-cancel', fileId: tr.id });
+          throw new Error('使用者已手動取消。');
+        }
+
+        const sliceBlob = file.slice(offset, offset + chunkSize);
+        const arrayBuffer = await readBlobAsArrayBuffer(sliceBlob);
+
+        conn.send({
+          type: 'file-chunk',
+          fileId: tr.id,
+          chunkIndex: i,
+          data: arrayBuffer
+        });
+
+        offset += chunkSize;
+
+        tr.bytesTransferred = Math.min(offset, file.size);
+        tr.progress = Math.min(Math.round((tr.bytesTransferred / file.size) * 100), 100);
+
+        if (i % 20 === 0 || i === totalChunks - 1) {
+          const now = Date.now();
+          const timeDiff = (now - tr.lastTime) / 1000;
+          if (timeDiff > 0.3) {
+            const byteDiff = tr.bytesTransferred - tr.lastBytesTransferred;
+            tr.speed = byteDiff / timeDiff;
+            const remainingBytes = tr.size - tr.bytesTransferred;
+            tr.eta = tr.speed > 0 ? Math.ceil(remainingBytes / tr.speed) : 0;
+            
+            tr.lastBytesTransferred = tr.bytesTransferred;
+            tr.lastTime = now;
+          }
+          updateTransferCard(tr.id);
+        }
+      }
+
+      tr.status = 'completed';
+      tr.progress = 100;
+      tr.speed = 0;
+      tr.eta = 0;
+      updateTransferCard(tr.id);
+      showToast(`「${tr.name}」已成功送達對方！`, 'success');
+    }
+
+    function readBlobAsArrayBuffer(blob) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (e) => resolve(e.target.result);
+        reader.onerror = (err) => reject(err);
+        reader.readAsArrayBuffer(blob);
+      });
+    }
+
+    // --- 雲端暫存上傳模式 ---
+    function performCloudUpload(tr) {
+      return new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable) {
+            tr.bytesTransferred = e.loaded;
+            tr.progress = Math.min(Math.round((e.loaded / e.total) * 100), 100);
+
+            const now = Date.now();
+            const timeDiff = (now - tr.lastTime) / 1000;
+            if (timeDiff > 0.3) {
+              const byteDiff = tr.bytesTransferred - tr.lastBytesTransferred;
+              tr.speed = byteDiff / timeDiff;
+              const remainingBytes = tr.size - tr.bytesTransferred;
+              tr.eta = tr.speed > 0 ? Math.ceil(remainingBytes / tr.speed) : 0;
+              
+              tr.lastBytesTransferred = tr.bytesTransferred;
+              tr.lastTime = now;
+            }
+            updateTransferCard(tr.id);
+          }
+        };
+
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            try {
+              const res = JSON.parse(xhr.responseText);
+              if (res.status === 'success' && res.data && res.data.url) {
+                const directDlUrl = res.data.url.replace('https://tmpfiles.org/', 'https://tmpfiles.org/dl/');
+                tr.status = 'completed';
+                tr.progress = 100;
+                tr.url = directDlUrl;
+                tr.speed = 0;
+                tr.eta = 0;
+                updateTransferCard(tr.id);
+                showToast(`「${tr.name}」上傳雲端完畢！`, 'success');
+                resolve();
+              } else {
+                reject(new Error(res.message || '儲存伺服器異常'));
+              }
+            } catch (err) {
+              reject(new Error('回傳結構解析錯誤'));
+            }
+          } else {
+            reject(new Error(`上傳 HTTP 異常 狀態碼: ${xhr.status}`));
+          }
+        };
+
+        xhr.onerror = () => reject(new Error('網路連線中斷'));
+        tr.xhr = xhr;
+
+        xhr.open('POST', 'https://tmpfiles.org/api/v1/upload');
+        const fd = new FormData();
+        fd.append('file', tr.file);
+        xhr.send(fd);
+      });
+    }
+
+    // --- UI: 建立新的傳輸卡片 ---
+    function renderNewTransferCard(id) {
+      const tr = transfers[id];
+      const isSend = tr.direction === 'send';
+      
+      const card = document.createElement('div');
+      card.id = `card-${id}`;
+      card.className = 'bg-slate-900/90 border border-slate-800 p-4 rounded-xl flex flex-col space-y-2.5 relative overflow-hidden animate-in slide-in-from-right-4 duration-200';
+      
+      let colorClass = 'text-violet-400 bg-violet-600/10';
+      if (tr.mode === 'cloud') {
+        colorClass = 'text-fuchsia-400 bg-fuchsia-600/10';
+      }
+
+      card.innerHTML = `
+        <div class="flex items-start justify-between">
+          <div class="flex items-center space-x-3 min-w-0">
+            <div class="w-10 h-10 rounded-xl ${colorClass} flex items-center justify-center shrink-0">
+              <i data-lucide="${getFileIconName(tr.type)}" class="w-5 h-5"></i>
+            </div>
+            <div class="min-w-0">
+              <h4 class="text-xs sm:text-sm font-bold text-slate-200 truncate pr-4" title="${escapeHtml(tr.name)}">${escapeHtml(tr.name)}</h4>
+              <p class="text-[10px] text-slate-500 mt-0.5 flex items-center space-x-1.5 flex-wrap">
+                <span>大小: ${formatBytes(tr.size)}</span>
+                <span>•</span>
+                <span class="text-slate-400 font-medium">${isSend ? '發送給' : '接收自'}: ${escapeHtml(tr.peerNickname)}</span>
+                <span>•</span>
+                <span class="px-1.5 py-0.5 rounded bg-slate-800 text-[9px] uppercase tracking-wide text-slate-300">${tr.mode}</span>
+              </p>
+            </div>
+          </div>
+
+          <div class="flex items-center space-x-1.5" id="actions-${id}">
+            <button class="w-7 h-7 rounded-lg bg-slate-800 hover:bg-rose-950/40 text-slate-400 hover:text-rose-400 flex items-center justify-center transition" onclick="cancelTransfer('${id}')" title="取消">
+              <i data-lucide="x" class="w-4 h-4"></i>
+            </button>
+          </div>
+        </div>
+
+        <div class="space-y-1">
+          <div class="flex justify-between text-[10px]">
+            <span class="text-slate-400" id="status-text-${id}">佇列中...</span>
+            <span class="font-bold text-slate-300" id="percent-text-${id}">0%</span>
+          </div>
+          <div class="w-full bg-slate-950 h-2 rounded-full overflow-hidden border border-slate-800/80">
+            <div id="bar-${id}" class="h-full bg-gradient-to-r from-violet-500 to-fuchsia-500 rounded-full transition-all duration-150" style="width: 0%"></div>
+          </div>
+        </div>
+
+        <div class="flex justify-between items-center text-[10px] text-slate-500" id="speed-meta-${id}">
+          <span id="speed-text-${id}">0 KB/s</span>
+          <span id="eta-text-${id}">剩餘: --</span>
+        </div>
+      `;
+
+      transfersContainer.insertBefore(card, transfersContainer.firstChild);
+      lucide.createIcons();
+    }
+
+    // --- UI: 更新傳輸卡片數值進度 ---
+    function updateTransferCard(id) {
+      const tr = transfers[id];
+      const card = document.getElementById(`card-${id}`);
+      if (!card) return;
+
+      const bar = document.getElementById(`bar-${id}`);
+      const percentText = document.getElementById(`percent-text-${id}`);
+      const statusText = document.getElementById(`status-text-${id}`);
+      const speedText = document.getElementById(`speed-text-${id}`);
+      const etaText = document.getElementById(`eta-text-${id}`);
+      const actionsEl = document.getElementById(`actions-${id}`);
+
+      if (bar) bar.style.width = `${tr.progress}%`;
+      if (percentText) percentText.innerText = `${tr.progress}%`;
+
+      if (tr.status === 'transferring') {
+        if (statusText) statusText.innerText = tr.direction === 'send' ? '正在發送切片中...' : '正在接收切片中...';
+        if (speedText) speedText.innerText = `${formatBytes(tr.speed)}/s`;
+        if (etaText) etaText.innerText = tr.eta > 0 ? `剩餘: ${tr.eta} 秒` : '剩餘: 計算中';
+      } 
+      
+      else if (tr.status === 'completed') {
+        if (statusText) {
+          statusText.innerText = '傳輸完成';
+          statusText.className = 'text-emerald-400 font-semibold';
+        }
+        if (percentText) percentText.className = 'text-emerald-400 font-bold';
+        if (bar) bar.className = 'h-full bg-gradient-to-r from-emerald-500 to-teal-400 rounded-full';
+        
+        const speedMeta = document.getElementById(`speed-meta-${id}`);
+        if (speedMeta) speedMeta.classList.add('hidden');
+
+        if (actionsEl) {
+          actionsEl.innerHTML = '';
+          
+          if (tr.direction === 'receive' && tr.url) {
+            const btnDownload = document.createElement('a');
+            btnDownload.href = tr.url;
+            btnDownload.download = tr.name;
+            btnDownload.className = 'flex items-center space-x-1 bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] px-2.5 py-1.5 rounded-lg font-bold transition shadow-lg shadow-emerald-600/10 active:scale-95';
+            btnDownload.innerHTML = `<i data-lucide="download" class="w-3.5 h-3.5"></i> <span>保存檔案</span>`;
+            actionsEl.appendChild(btnDownload);
+          } else if (tr.mode === 'cloud' && tr.url) {
+            const btnCopyLink = document.createElement('button');
+            btnCopyLink.className = 'flex items-center space-x-1 bg-fuchsia-600 hover:bg-fuchsia-500 text-white text-[10px] px-2.5 py-1.5 rounded-lg font-bold transition shadow-lg shadow-fuchsia-600/10 active:scale-95';
+            btnCopyLink.innerHTML = `<i data-lucide="link" class="w-3.5 h-3.5"></i> <span>複製下載連結</span>`;
+            btnCopyLink.addEventListener('click', () => {
+              copyToClipboard(tr.url);
+              showToast('下載網址已成功複製！', 'success');
+            });
+            actionsEl.appendChild(btnCopyLink);
+          } else {
+            actionsEl.innerHTML = `<span class="text-[10px] text-emerald-400 flex items-center gap-0.5 font-bold"><i data-lucide="check" class="w-3.5 h-3.5"></i> 已送達</span>`;
+          }
+          lucide.createIcons();
+        }
+      } 
+      
+      else if (tr.status === 'failed') {
+        if (statusText) {
+          statusText.innerText = `失敗: ${tr.error}`;
+          statusText.className = 'text-rose-400 font-semibold';
+        }
+        if (bar) bar.className = 'h-full bg-rose-600 rounded-full';
+        const speedMeta = document.getElementById(`speed-meta-${id}`);
+        if (speedMeta) speedMeta.classList.add('hidden');
+        if (actionsEl) {
+          actionsEl.innerHTML = `<span class="text-[10px] text-rose-400 flex items-center gap-0.5"><i data-lucide="alert-triangle" class="w-3.5 h-3.5"></i> 失敗</span>`;
+          lucide.createIcons();
+        }
+      }
+    }
+
+    // --- 取消/中斷傳輸功能 ---
+    window.cancelTransfer = function(id) {
+      const tr = transfers[id];
+      if (tr) {
+        tr.status = 'failed';
+        tr.error = '手動取消傳送';
+        
+        if (tr.mode === 'cloud' && tr.xhr) {
+          try { tr.xhr.abort(); } catch(_) {}
+        }
+        
+        updateTransferCard(id);
+        showToast('傳輸已取消。', 'info');
+      }
+    };
+
+    // --- 複製到剪貼簿安全方法 ---
+    function copyToClipboard(text) {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).catch(err => {
+          fallbackCopyToClipboard(text);
+        });
+      } else {
+        fallbackCopyToClipboard(text);
+      }
+    }
+
+    function fallbackCopyToClipboard(text) {
+      const textArea = document.createElement("textarea");
+      textArea.value = text;
+      textArea.style.position = "fixed";
+      document.body.appendChild(textArea);
+      textArea.focus();
+      textArea.select();
+      try {
+        document.execCommand('copy');
+      } catch (err) {
+        console.error('複製失敗：', err);
+      }
+      document.body.removeChild(textArea);
+    }
+
+    // --- 根據 MIME 類型獲取 Lucide 圖示名稱 ---
+    function getFileIconName(mimeType) {
+      if (!mimeType) return 'file';
+      const m = mimeType.toLowerCase();
+      if (m.startsWith('image/')) return 'file-image';
+      if (m.startsWith('video/')) return 'file-video';
+      if (m.startsWith('audio/')) return 'file-audio';
+      if (m.includes('zip') || m.includes('rar') || m.includes('tar') || m.includes('7z') || m.includes('compressed')) return 'archive';
+      if (m.includes('pdf')) return 'file-text';
+      if (m.includes('word') || m.includes('excel') || m.includes('powerpoint') || m.includes('office') || m.startsWith('text/')) return 'file-text';
+      return 'file';
+    }
+
+    // --- 生成唯一 ID ---
+    function generateUUID() {
+      return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+        const r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+      });
+    }
+
+    // --- HTML 安全字元脫逸 ---
+    function escapeHtml(text) {
+      const map = {
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#039;'
+      };
+      return text.replace(/[&<>"']/g, m => map[m]);
+    }
+
+    // --- 手動輸入 Peer ID 連線機制 ---
+    btnConnect.addEventListener('click', () => {
+      const trimmed = inputPeerId.value.trim();
+      if (!trimmed) {
+        showToast('請輸入一個有效的裝置 ID！', 'error');
+        return;
+      }
+      connectToPeer(trimmed);
+      inputPeerId.value = '';
+    });
+
+    // --- 彈出視窗控制模組 ---
+    btnInvite.addEventListener('click', () => {
+      modalInvite.classList.remove('hidden');
+    });
+
+    btnHelp.addEventListener('click', () => {
+      modalHelp.classList.remove('hidden');
+    });
+
+    document.querySelectorAll('.modal-close').forEach(btn => {
+      btn.addEventListener('click', () => {
+        modalInvite.classList.add('hidden');
+        modalHelp.classList.add('hidden');
+      });
+    });
+
+    window.addEventListener('click', (e) => {
+      if (e.target === modalInvite) modalInvite.classList.add('hidden');
+      if (e.target === modalHelp) modalHelp.classList.add('hidden');
+    });
+
+    document.getElementById('btn-copy-invite').addEventListener('click', () => {
+      const val = document.getElementById('invite-link-input').value;
+      copyToClipboard(val);
+      showToast('邀請連線連結已複製到剪貼簿！', 'success');
+    });
+
+    document.getElementById('btn-copy-id').addEventListener('click', () => {
+      copyToClipboard(myPeerId);
+      showToast('本機 ID 已複製！', 'success');
+    });
+
+    // --- 手機端 Tab 選單點擊切換邏輯 ---
+    const tabRadar = document.getElementById('tab-radar');
+    const tabConsole = document.getElementById('tab-console');
+    const panelRadar = document.getElementById('panel-radar-container');
+    const panelConsole = document.getElementById('panel-console-container');
+
+    function switchToRadarTab() {
+      tabRadar.className = 'flex-1 py-2.5 text-center text-sm font-medium rounded-lg bg-violet-600/20 text-violet-400 transition';
+      tabConsole.className = 'flex-1 py-2.5 text-center text-sm font-medium rounded-lg text-slate-400 hover:text-slate-200 transition';
+      
+      panelRadar.classList.remove('hidden');
+      panelConsole.classList.add('hidden', 'lg:flex');
+    }
+
+    function switchToConsoleTab() {
+      tabConsole.className = 'flex-1 py-2.5 text-center text-sm font-medium rounded-lg bg-violet-600/20 text-violet-400 transition';
+      tabRadar.className = 'flex-1 py-2.5 text-center text-sm font-medium rounded-lg text-slate-400 hover:text-slate-200 transition';
+      
+      panelConsole.classList.remove('hidden', 'lg:flex');
+      panelRadar.classList.add('hidden');
+    }
+
+    tabRadar.addEventListener('click', switchToRadarTab);
+    tabConsole.addEventListener('click', switchToConsoleTab);
+
+    window.addEventListener('resize', () => {
+      if (window.innerWidth >= 1024) {
+        panelRadar.classList.remove('hidden');
+        panelConsole.classList.remove('hidden');
+        panelConsole.classList.add('lg:flex');
+      } else {
+        if (tabRadar.classList.contains('text-violet-400')) {
+          panelConsole.classList.add('hidden');
+        } else {
+          panelRadar.classList.add('hidden');
+        }
+      }
+    });
+
+    // --- 初始化執行 ---
+    window.onload = function() {
+      initPeerJS();
+      lucide.createIcons();
+    };
+  </script>
+</body>
+</html>

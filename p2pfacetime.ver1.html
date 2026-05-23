@@ -1,0 +1,1087 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>FaceTime Web - P2P Video Call</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Google Fonts for Apple San Francisco style Font -->
+  <link href="https://fonts.googleapis.com/css2?family=SF+Pro+Display:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- PeerJS WebRTC API -->
+  <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['SF Pro Display', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'Helvetica', 'Arial', 'sans-serif'],
+          },
+          colors: {
+            appleGreen: '#30D158',
+            appleRed: '#FF453A',
+            appleDark: '#1C1C1E',
+            appleGray: '#2C2C2E',
+            appleButtonBg: 'rgba(255, 255, 255, 0.15)',
+            appleButtonHover: 'rgba(255, 255, 255, 0.25)',
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    /* iOS 磨砂玻璃效果 */
+    .glass {
+      background: rgba(28, 28, 30, 0.75);
+      backdrop-filter: blur(25px);
+      -webkit-backdrop-filter: blur(25px);
+    }
+    .glass-light {
+      background: rgba(255, 255, 255, 0.12);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+    }
+    .glass-card {
+      background: rgba(30, 30, 30, 0.6);
+      backdrop-filter: blur(30px);
+      -webkit-backdrop-filter: blur(30px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    /* 滾動條隱藏 */
+    ::-webkit-scrollbar {
+      display: none;
+    }
+    /* 鏡像翻轉本地相機 */
+    .mirror {
+      transform: scaleX(-1);
+    }
+    video {
+      object-fit: cover;
+    }
+    /* 呼吸特效 */
+    @keyframes pulse-ring {
+      0% { transform: scale(0.95); opacity: 0.5; }
+      50% { transform: scale(1.08); opacity: 0.2; }
+      100% { transform: scale(0.95); opacity: 0.5; }
+    }
+    .pulse-effect {
+      animation: pulse-ring 2.5s infinite ease-in-out;
+    }
+    /* 來電震動 */
+    @keyframes subtle-bounce {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-4px); }
+    }
+    .incoming-bounce {
+      animation: subtle-bounce 2s infinite ease-in-out;
+    }
+  </style>
+</head>
+<body class="bg-black text-white font-sans overflow-hidden w-screen h-screen select-none">
+
+  <!-- 頂部自訂 Toast 提示框 -->
+  <div id="toast" class="fixed top-14 left-1/2 -translate-x-1/2 z-50 glass-light px-5 py-3 rounded-2xl border border-white/10 flex items-center space-x-3 pointer-events-none opacity-0 transform translate-y-[-20px] transition-all duration-300 shadow-xl">
+    <span id="toast-icon" class="text-appleGreen"><i data-lucide="info" class="w-5 h-5"></i></span>
+    <span id="toast-text" class="text-sm font-medium text-white/95">提示訊息</span>
+  </div>
+
+  <!-- 主容器 -->
+  <div class="relative w-full h-full flex flex-col justify-between items-center">
+
+    <!-- ============================================ -->
+    <!-- 頂部系統列：實時日期時間（移除了電源顯示） -->
+    <!-- ============================================ -->
+    <div class="absolute top-0 inset-x-0 z-40 px-6 py-3 flex justify-between items-center text-xs text-neutral-300 font-medium tracking-wide pointer-events-none">
+      <!-- 實時時間與日期 -->
+      <span id="system-time" class="bg-black/20 px-3 py-1 rounded-full backdrop-blur-sm">載入時間中...</span>
+      <!-- 右側保持簡潔無電量顯示 -->
+      <div class="flex items-center space-x-2 bg-black/20 px-3 py-1 rounded-full backdrop-blur-sm">
+        <span class="w-2 h-2 bg-appleGreen rounded-full animate-pulse"></span>
+        <span>FaceTime Web P2P</span>
+      </div>
+    </div>
+
+    <!-- ============================================ -->
+    <!-- 1. 登入/大廳畫面 (FaceTime 初始畫面) -->
+    <!-- ============================================ -->
+    <div id="lobby-screen" class="absolute inset-0 z-30 flex flex-col justify-between items-center bg-black px-6 pt-16 pb-8 transition-all duration-500 overflow-y-auto">
+      
+      <!-- 中間大廳表單 -->
+      <div class="w-full max-w-md flex flex-col items-center flex-grow justify-center py-6">
+        <!-- FaceTime 綠色 Icon -->
+        <div class="w-24 h-24 bg-appleGreen rounded-[24px] flex items-center justify-center shadow-2xl mb-5 relative">
+          <div class="absolute inset-0 bg-appleGreen rounded-[24px] blur-xl opacity-40"></div>
+          <svg class="w-12 h-12 text-white relative z-10" fill="currentColor" viewBox="0 0 24 24">
+            <path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z"/>
+          </svg>
+        </div>
+        
+        <h1 class="text-3xl font-bold tracking-tight text-white mb-1">FaceTime</h1>
+        <p class="text-neutral-400 text-sm mb-8">輸入名稱並選擇通話房號以開啟連線</p>
+
+        <!-- 表單欄位 -->
+        <div class="w-full space-y-4 px-2">
+          
+          <!-- 用戶名稱輸入 -->
+          <div class="space-y-1.5">
+            <label class="text-xs text-neutral-400 px-1 font-medium">您的通話名稱</label>
+            <input type="text" id="username-input" placeholder="例如: Oner 123" 
+              class="w-full bg-[#1C1C1E] text-white border border-white/5 rounded-2xl py-3 px-4 text-center focus:outline-none focus:ring-2 focus:ring-appleGreen transition text-base font-medium">
+          </div>
+
+          <!-- 我的房號設定 -->
+          <div class="bg-[#1C1C1E] rounded-2xl p-4 border border-white/5 space-y-2">
+            <div class="flex items-center justify-between text-xs text-neutral-400">
+              <span>您的專屬 FaceTime 房號</span>
+              <span id="peer-status" class="text-appleGreen flex items-center">
+                <span class="w-1.5 h-1.5 bg-appleGreen rounded-full mr-1.5 animate-pulse"></span>已連線
+              </span>
+            </div>
+            <div class="flex items-center space-x-2">
+              <input type="text" id="my-peer-id" readonly 
+                class="bg-black/50 text-neutral-200 text-sm font-mono rounded-xl py-2.5 px-3 flex-grow text-center focus:outline-none tracking-wider">
+              <button onclick="copyInviteLink()" class="bg-appleGray hover:bg-neutral-700 text-white p-2.5 rounded-xl transition-all active:scale-95" title="複製邀請連結">
+                <i data-lucide="copy" class="w-5 h-5"></i>
+              </button>
+            </div>
+          </div>
+
+          <!-- 分割線 -->
+          <div class="relative flex py-2 items-center">
+            <div class="flex-grow border-t border-neutral-800"></div>
+            <span class="flex-shrink mx-4 text-neutral-500 text-xs font-semibold uppercase tracking-widest">或</span>
+            <div class="flex-grow border-t border-neutral-800"></div>
+          </div>
+
+          <!-- 加入他人房號 -->
+          <div class="bg-[#1C1C1E] rounded-2xl p-4 border border-white/5 space-y-2">
+            <label class="text-xs text-neutral-400 font-medium">輸入對方的 FaceTime 房號</label>
+            <input type="text" id="target-peer-id" placeholder="例如: ft-137-806" 
+              class="w-full bg-black/50 text-white rounded-xl py-3 px-4 text-center text-sm font-mono focus:outline-none focus:ring-1 focus:ring-appleGreen tracking-wider">
+          </div>
+
+          <!-- 主控操作按鈕 -->
+          <div class="grid grid-cols-2 gap-3 pt-2">
+            <button onclick="startPreviewFlow(false)" 
+              class="w-full bg-appleGreen hover:bg-green-500 text-white font-semibold py-3.5 px-4 rounded-2xl transition-all shadow-lg active:scale-95 flex items-center justify-center space-x-2 text-sm">
+              <i data-lucide="video" class="w-4 h-4"></i>
+              <span>建立新通話</span>
+            </button>
+            <button onclick="startPreviewFlow(true)" 
+              class="w-full bg-appleGray hover:bg-neutral-700 text-neutral-200 font-semibold py-3.5 px-4 rounded-2xl transition-all active:scale-95 flex items-center justify-center space-x-2 text-sm">
+              <i data-lucide="phone-call" class="w-4 h-4"></i>
+              <span>加入他人通話</span>
+            </button>
+          </div>
+
+          <!-- 單人快速模擬體驗 -->
+          <button onclick="startSimulationCall()" 
+            class="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-semibold py-3 px-4 rounded-2xl transition shadow-lg flex items-center justify-center space-x-2 mt-4 active:scale-95">
+            <i data-lucide="sparkles" class="w-4 h-4"></i>
+            <span>單人快速測試 (模擬通話)</span>
+          </button>
+
+        </div>
+      </div>
+
+      <!-- 底部 Apple 宣告 -->
+      <div class="w-full max-w-md text-center text-[10px] text-neutral-500 space-y-1">
+        <div class="flex justify-center space-x-3">
+          <a href="#" class="hover:underline">系統狀態</a>
+          <span>|</span>
+          <a href="#" class="hover:underline">私隱政策</a>
+          <span>|</span>
+          <a href="#" class="hover:underline">使用條款</a>
+        </div>
+        <p>Copyright © 2026 Apple Inc. 保留一切權利。</p>
+      </div>
+
+    </div>
+
+    <!-- ============================================ -->
+    <!-- 2. 相機預覽 / 撥號前畫面 (對齊圖片4) -->
+    <!-- ============================================ -->
+    <div id="preview-screen" class="absolute inset-0 z-20 hidden flex-col justify-between bg-zinc-950 transition-all duration-500">
+      
+      <!-- 背景：本地相機預覽 -->
+      <div class="absolute inset-0 w-full h-full bg-neutral-900 overflow-hidden">
+        <video id="preview-local-video" class="w-full h-full object-cover mirror" autoplay playsinline muted></video>
+        <div id="preview-video-off-mask" class="hidden absolute inset-0 bg-neutral-900 flex-col items-center justify-center">
+          <div class="w-20 h-20 rounded-full bg-white/10 flex items-center justify-center mb-4">
+            <i data-lucide="video-off" class="w-8 h-8 text-neutral-400"></i>
+          </div>
+          <span class="text-neutral-400 text-sm">相機已關閉</span>
+        </div>
+        <div class="absolute inset-0 bg-gradient-to-b from-black/50 via-transparent to-black/70"></div>
+      </div>
+
+      <!-- 頂部導航 -->
+      <div class="relative z-10 p-6 pt-14 flex justify-between items-center">
+        <button onclick="backToLobby()" class="w-10 h-10 rounded-full glass flex items-center justify-center hover:bg-neutral-800 transition active:scale-90">
+          <i data-lucide="chevron-left" class="w-6 h-6"></i>
+        </button>
+        <div class="text-center">
+          <h2 id="preview-title" class="text-lg font-semibold text-white">FaceTime 通話</h2>
+          <p id="preview-subtitle" class="text-xs text-neutral-300">連線準備中...</p>
+        </div>
+        <div class="w-10"></div>
+      </div>
+
+      <!-- 錯誤/權限提示 -->
+      <div class="relative z-10 flex-grow flex items-center justify-center">
+        <div id="permission-warning" class="hidden max-w-xs text-center glass p-6 rounded-3xl border border-white/10 space-y-3">
+          <i data-lucide="camera-off" class="w-8 h-8 text-appleRed mx-auto animate-bounce"></i>
+          <h3 class="font-semibold text-white">需要攝影機與麥克風權限</h3>
+          <p class="text-xs text-neutral-400">請允許瀏覽器存取硬體設備，以取得最佳 FaceTime 視訊體驗。</p>
+        </div>
+      </div>
+
+      <!-- 底部控制面板 -->
+      <div class="relative z-10 p-8 flex flex-col items-center space-y-6">
+        <!-- 圓形快捷控制 -->
+        <div class="flex items-center space-x-6">
+          <button id="preview-btn-video" onclick="toggleLocalVideo('preview')" class="w-14 h-14 rounded-full glass-light flex items-center justify-center hover:bg-white/20 transition-all duration-300 active:scale-90">
+            <i data-lucide="video" id="preview-icon-video" class="w-6 h-6 text-white"></i>
+          </button>
+          
+          <button id="preview-btn-audio" onclick="toggleLocalAudio('preview')" class="w-14 h-14 rounded-full glass-light flex items-center justify-center hover:bg-white/20 transition-all duration-300 active:scale-90">
+            <i data-lucide="mic" id="preview-icon-audio" class="w-6 h-6 text-white"></i>
+          </button>
+        </div>
+
+        <!-- 撥打 / 加入行動按鈕 (綠色大按鈕) -->
+        <button id="call-action-btn" onclick="executeCallFlow()" class="w-full max-w-xs bg-appleGreen hover:bg-green-500 text-white font-semibold py-4 rounded-2xl transition duration-300 shadow-xl flex items-center justify-center space-x-2 text-lg active:scale-95">
+          <i data-lucide="phone-call" class="w-5 h-5"></i>
+          <span id="call-action-text">加入</span>
+        </button>
+      </div>
+
+    </div>
+
+    <!-- ============================================ -->
+    <!-- 3. iOS 風格極致來電呼叫彈窗 (解決被呼叫端無法自動接聽問題) -->
+    <!-- ============================================ -->
+    <div id="incoming-call-overlay" class="fixed inset-0 z-50 hidden bg-black/80 flex-col justify-between p-8 pt-20 transition-all duration-500">
+      <div class="w-full flex flex-col items-center space-y-4 mt-12 incoming-bounce">
+        <div class="w-20 h-20 bg-appleGreen rounded-3xl flex items-center justify-center shadow-2xl relative">
+          <div class="absolute inset-0 bg-appleGreen rounded-3xl blur-lg opacity-40"></div>
+          <i data-lucide="video" class="w-10 h-10 text-white"></i>
+        </div>
+        <div class="text-center">
+          <p class="text-sm text-neutral-400 tracking-wider">FaceTime 邀請</p>
+          <h2 id="incoming-caller-name" class="text-2xl font-bold mt-1 text-white">來自好友的來電</h2>
+          <p id="incoming-caller-peer-id" class="text-xs text-neutral-500 font-mono mt-1">房號: ---</p>
+        </div>
+      </div>
+
+      <!-- 底部接聽與掛斷按鈕 -->
+      <div class="w-full max-w-md mx-auto grid grid-cols-2 gap-8 mb-12">
+        <button onclick="declineIncomingCall()" class="flex flex-col items-center space-y-2">
+          <div class="w-16 h-16 rounded-full bg-appleRed flex items-center justify-center shadow-lg active:scale-90 transition-all hover:bg-red-500">
+            <i data-lucide="phone-off" class="w-6 h-6 text-white"></i>
+          </div>
+          <span class="text-xs text-neutral-400">拒絕</span>
+        </button>
+
+        <button onclick="acceptIncomingCall()" class="flex flex-col items-center space-y-2">
+          <div class="w-16 h-16 rounded-full bg-appleGreen flex items-center justify-center shadow-lg active:scale-90 transition-all hover:bg-green-500">
+            <i data-lucide="phone" class="w-6 h-6 text-white"></i>
+          </div>
+          <span class="text-xs text-neutral-400">接聽</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- ============================================ -->
+    <!-- 4. 通話中畫面 (完美復刻圖片 2、3) -->
+    <!-- ============================================ -->
+    <div id="call-screen" class="absolute inset-0 z-10 hidden flex-col justify-between bg-zinc-950 transition-all duration-500">
+      
+      <!-- (A) 全螢幕大影像：遠端視訊 -->
+      <div class="absolute inset-0 w-full h-full bg-neutral-900 overflow-hidden">
+        <video id="remote-video" class="w-full h-full object-cover" autoplay playsinline></video>
+        
+        <!-- 連線/等待狀態遮罩 -->
+        <div id="remote-status-overlay" class="absolute inset-0 bg-black/60 flex flex-col items-center justify-center space-y-4 z-10">
+          <div class="w-20 h-20 rounded-full glass flex items-center justify-center relative">
+            <div class="absolute inset-0 rounded-full border border-appleGreen pulse-effect"></div>
+            <i id="remote-status-icon" data-lucide="loader2" class="w-8 h-8 text-appleGreen animate-spin"></i>
+          </div>
+          <div class="text-center">
+            <h3 id="remote-status-title" class="text-lg font-semibold">正在聯絡...</h3>
+            <p id="remote-status-subtitle" class="text-xs text-neutral-400">等待對方接受邀請</p>
+          </div>
+        </div>
+
+        <!-- 浮動對方資訊標籤 (圖片 2 樣式) -->
+        <div class="absolute top-20 left-6 z-20 pointer-events-none">
+          <div id="remote-caller-tag" class="glass px-4 py-2 rounded-2xl text-xs font-semibold text-white border border-white/5 shadow-lg flex items-center space-x-2">
+            <span class="w-2.5 h-2.5 bg-appleGreen rounded-full animate-ping"></span>
+            <span id="remote-caller-id">連線中...</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- (B) 浮動子母畫面 (PiP)：本地視訊 (對齊圖片2、圖片3) -->
+      <div id="pip-container" class="absolute bottom-28 right-6 w-28 h-38 rounded-2xl overflow-hidden shadow-2xl border border-white/10 z-20 transition-all duration-300 cursor-pointer hover:scale-105 active:scale-95">
+        <video id="local-video" class="w-full h-full object-cover mirror" autoplay playsinline muted></video>
+        <div class="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent pointer-events-none"></div>
+        <span class="absolute bottom-2 left-2 text-[10px] text-white/80 font-semibold tracking-wider">您</span>
+        
+        <!-- 子畫面關閉相機遮罩 -->
+        <div id="local-video-off-mask" class="hidden absolute inset-0 bg-neutral-800 flex items-center justify-center">
+          <i data-lucide="video-off" class="w-5 h-5 text-neutral-500"></i>
+        </div>
+      </div>
+
+      <!-- 頂部狀態列 (iOS 特色) -->
+      <div class="relative z-20 p-6 pt-14 flex justify-between items-center pointer-events-none">
+        <div class="glass px-4 py-2 rounded-2xl flex items-center space-x-2 border border-white/5 shadow-md">
+          <div class="w-2 h-2 bg-appleGreen rounded-full"></div>
+          <span class="text-xs font-semibold tracking-wider">FaceTime 連結</span>
+        </div>
+        <div id="call-timer" class="text-xs font-semibold tracking-widest text-white shadow-md glass px-3.5 py-2 rounded-2xl border border-white/5">
+          00:00
+        </div>
+      </div>
+
+      <!-- (C) 磨砂控制列 (對齊圖片5底欄) -->
+      <div class="relative z-20 p-6 w-full flex flex-col items-center">
+        <!-- 控制按鈕列 -->
+        <div class="glass w-full max-w-sm rounded-[32px] px-6 py-4 flex items-center justify-between border border-white/10 shadow-2xl">
+          
+          <!-- 1. 全螢幕/收縮 (最左) -->
+          <button onclick="toggleScale()" class="w-11 h-11 rounded-full bg-appleButtonBg flex items-center justify-center text-white hover:bg-appleButtonHover transition duration-200 active:scale-90" title="自適應縮放">
+            <i data-lucide="minimize-2" id="scale-icon" class="w-5 h-5"></i>
+          </button>
+
+          <!-- 2. 視訊開關 (圓形暗底) -->
+          <button id="call-btn-video" onclick="toggleLocalVideo('call')" class="w-12 h-12 rounded-full bg-appleButtonBg flex items-center justify-center text-white hover:bg-appleButtonHover transition duration-200 active:scale-90" title="鏡頭切換">
+            <i data-lucide="video" id="call-icon-video" class="w-5 h-5"></i>
+          </button>
+
+          <!-- 3. 靜音開關 (圓形暗底) -->
+          <button id="call-btn-audio" onclick="toggleLocalAudio('call')" class="w-12 h-12 rounded-full bg-appleButtonBg flex items-center justify-center text-white hover:bg-appleButtonHover transition duration-200 active:scale-90" title="靜音切換">
+            <i data-lucide="mic" id="call-icon-audio" class="w-5 h-5"></i>
+          </button>
+
+          <!-- 4. 更多選項 (三點) -->
+          <button onclick="showCallOptionsMenu()" class="w-11 h-11 rounded-full bg-appleButtonBg flex items-center justify-center text-white hover:bg-appleButtonHover transition duration-200 active:scale-90" title="更多">
+            <i data-lucide="more-horizontal" class="w-5 h-5"></i>
+          </button>
+
+          <!-- 5. 掛斷/離開 (最右紅底) -->
+          <button onclick="endCall()" class="w-12 h-12 rounded-full bg-appleRed flex items-center justify-center text-white hover:bg-red-500 transition-all duration-200 shadow-lg active:scale-90" title="掛斷">
+            <i data-lucide="phone-off" class="w-5 h-5 transform rotate-135"></i>
+          </button>
+
+        </div>
+      </div>
+
+    </div>
+
+    <!-- 更多選項彈窗面板 -->
+    <div id="options-panel" class="fixed inset-0 bg-black/60 z-40 hidden flex-items-end transition-opacity duration-300 justify-center items-end p-4">
+      <div class="w-full max-w-sm glass rounded-[32px] p-6 space-y-4 border border-white/10 shadow-2xl transform translate-y-full transition-transform duration-300">
+        <div class="flex justify-between items-center border-b border-white/10 pb-3">
+          <h4 class="font-bold text-base">FaceTime 設定</h4>
+          <button onclick="closeCallOptionsMenu()" class="text-neutral-400 hover:text-white">
+            <i data-lucide="x" class="w-5 h-5"></i>
+          </button>
+        </div>
+        <div class="space-y-2 text-sm font-medium">
+          <button onclick="copyInviteLink(); closeCallOptionsMenu();" class="w-full text-left py-3 px-4 bg-white/5 hover:bg-white/10 rounded-2xl flex items-center space-x-3 transition">
+            <i data-lucide="share-2" class="w-5 h-5 text-appleGreen"></i>
+            <span>複製並分享此通話連結</span>
+          </button>
+          <button onclick="togglePiPPosition()" class="w-full text-left py-3 px-4 bg-white/5 hover:bg-white/10 rounded-2xl flex items-center space-x-3 transition">
+            <i data-lucide="move" class="w-5 h-5 text-blue-400"></i>
+            <span>切換子畫面螢幕邊角</span>
+          </button>
+          <button onclick="triggerFeedbackEffect()" class="w-full text-left py-3 px-4 bg-white/5 hover:bg-white/10 rounded-2xl flex items-center space-x-3 transition">
+            <i data-lucide="sparkles" class="w-5 h-5 text-yellow-400"></i>
+            <span>發送愛心特效 (互動模擬)</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- 特效粒子容器 -->
+  <div id="fx-container" class="absolute inset-0 pointer-events-none z-30 overflow-hidden"></div>
+
+  <!-- JavaScript 核心邏輯 -->
+  <script>
+    // 初始化圖標
+    lucide.createIcons();
+
+    // 狀態變量
+    let myPeer = null;
+    let localStream = null;
+    let activeCall = null;
+    let timerInterval = null;
+    let callSeconds = 0;
+    
+    // 來電快取對象
+    let currentIncomingCall = null;
+    
+    // 設備控制狀態
+    let isVideoEnabled = true;
+    let isAudioEnabled = true;
+    let isScaleReduced = false;
+    let pipCorner = 3; // 1: 左上, 2: 右上, 3: 右下, 4: 左下
+    
+    // 模擬模式
+    let isSimulationMode = false;
+    let simulationStream = null;
+    let ringtoneInterval = null;
+
+    // DOM 元素
+    const lobbyScreen = document.getElementById('lobby-screen');
+    const previewScreen = document.getElementById('preview-screen');
+    const callScreen = document.getElementById('call-screen');
+    const optionsPanel = document.getElementById('options-panel');
+    const optionsContent = optionsPanel.querySelector('div');
+    const incomingCallOverlay = document.getElementById('incoming-call-overlay');
+
+    const previewLocalVideo = document.getElementById('preview-local-video');
+    const localVideo = document.getElementById('local-video');
+    const remoteVideo = document.getElementById('remote-video');
+    const myPeerIdInput = document.getElementById('my-peer-id');
+    const targetPeerIdInput = document.getElementById('target-peer-id');
+    const usernameInput = document.getElementById('username-input');
+
+    // ============================================
+    // 實時時間與日期同步更新
+    // ============================================
+    function updateSystemTime() {
+      const now = new Date();
+      const hours = now.getHours();
+      const minutes = String(now.getMinutes()).padStart(2, '0');
+      const ampm = hours >= 12 ? '下午' : '上午';
+      const formattedHours = hours % 12 || 12;
+      const month = now.getMonth() + 1;
+      const date = now.getDate();
+      const dayNames = ['週日', '週一', '週二', '週三', '週四', '週五', '週六'];
+      const day = dayNames[now.getDay()];
+
+      const timeString = `${day} ${ampm} ${formattedHours}:${minutes} ${month}月${date}日`;
+      
+      // 更新系統列
+      const sysTimeElement = document.getElementById('system-time');
+      if (sysTimeElement) {
+        sysTimeElement.innerText = timeString;
+      }
+    }
+    // 每秒更新
+    setInterval(updateSystemTime, 1000);
+    updateSystemTime();
+
+    // ============================================
+    // 網頁初始化與 PeerJS 連線
+    // ============================================
+    window.onload = function() {
+      const urlParams = new URLSearchParams(window.location.search);
+      const roomParam = urlParams.get('room');
+      const nameParam = urlParams.get('name');
+
+      if (roomParam) {
+        targetPeerIdInput.value = roomParam;
+        showToast('已由邀請連結載入通話房號', 'info');
+      }
+      if (nameParam) {
+        usernameInput.value = nameParam;
+      } else {
+        usernameInput.value = 'User_' + Math.floor(1000 + Math.random() * 9000);
+      }
+
+      initPeer();
+    };
+
+    function initPeer() {
+      // 隨機產生房號 (仿 Apple 格式 ft-xxx-xxx)
+      const randomId = 'ft-' + Math.floor(100 + Math.random() * 900) + '-' + Math.floor(100 + Math.random() * 900);
+      
+      myPeer = new Peer(randomId, {
+        debug: 1
+      });
+
+      myPeer.on('open', (id) => {
+        myPeerIdInput.value = id;
+        document.getElementById('peer-status').innerHTML = `<span class="w-1.5 h-1.5 bg-appleGreen rounded-full mr-1.5 animate-pulse"></span>已就緒`;
+      });
+
+      myPeer.on('error', (err) => {
+        console.error('PeerJS 發生異常:', err);
+        if (err.type === 'peer-unavailable') {
+          showToast('無法建立連線。請確認對方房號是否正確。', 'error');
+          endCall();
+        } else {
+          showToast('伺服器連線不穩定，自動轉為模擬模式。', 'info');
+        }
+      });
+
+      // 監聽傳入的呼叫 (被撥打端)
+      myPeer.on('call', (incomingCall) => {
+        currentIncomingCall = incomingCall;
+        
+        // 顯示 iOS 極致來電畫面
+        document.getElementById('incoming-caller-name').innerText = `FaceTime 通話邀請`;
+        document.getElementById('incoming-caller-peer-id').innerText = `房號: ${incomingCall.peer}`;
+        incomingCallOverlay.classList.remove('hidden');
+        incomingCallOverlay.classList.add('flex');
+
+        // 播放自製系統模擬鈴聲 (防止沒互動無音訊，採用 Web Audio API 每次點擊後生成)
+        startLocalRingtone();
+      });
+    }
+
+    // ============================================
+    // 來電答鈴/接聽/拒絕邏輯
+    // ============================================
+    function startLocalRingtone() {
+      try {
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        ringtoneInterval = setInterval(() => {
+          // 產生 FaceTime 優雅的高低鳴聲
+          const osc1 = audioCtx.createOscillator();
+          const osc2 = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+
+          osc1.type = 'sine';
+          osc1.frequency.setValueAtTime(880, audioCtx.currentTime); // A5
+          osc2.type = 'sine';
+          osc2.frequency.setValueAtTime(440, audioCtx.currentTime); // A4
+
+          gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.8);
+
+          osc1.connect(gain);
+          osc2.connect(gain);
+          gain.connect(audioCtx.destination);
+
+          osc1.start();
+          osc2.start();
+          osc1.stop(audioCtx.currentTime + 0.8);
+          osc2.stop(audioCtx.currentTime + 0.8);
+        }, 1500);
+      } catch(e) {
+        console.log("瀏覽器尚不支援自動播放音效：", e);
+      }
+    }
+
+    function stopLocalRingtone() {
+      if (ringtoneInterval) {
+        clearInterval(ringtoneInterval);
+        ringtoneInterval = null;
+      }
+    }
+
+    // 接聽通話
+    async function acceptIncomingCall() {
+      stopLocalRingtone();
+      incomingCallOverlay.classList.remove('flex');
+      incomingCallOverlay.classList.add('hidden');
+
+      if (!currentIncomingCall) return;
+
+      showToast('正在連接對方視訊...', 'info');
+
+      // 1. 先切換至通話畫面，做好佈局
+      lobbyScreen.classList.add('hidden');
+      previewScreen.classList.add('hidden');
+      callScreen.classList.remove('hidden');
+
+      // 2. 獲取本機攝影機與麥克風
+      try {
+        localStream = await requestMediaStream();
+        localVideo.srcObject = localStream;
+        document.getElementById('local-video-off-mask').classList.add('hidden');
+      } catch (e) {
+        showToast('無法開啟本機相機，改為純語音接聽', 'error');
+        document.getElementById('local-video-off-mask').classList.remove('hidden');
+      }
+
+      // 3. 回覆對方，並傳送本機媒體串流
+      currentIncomingCall.answer(localStream);
+      
+      // 4. 設定視訊雙向綁定
+      setupCallStreams(currentIncomingCall);
+      startCallTimer();
+    }
+
+    // 拒絕通話
+    function declineIncomingCall() {
+      stopLocalRingtone();
+      incomingCallOverlay.classList.remove('flex');
+      incomingCallOverlay.classList.add('hidden');
+
+      if (currentIncomingCall) {
+        currentIncomingCall.close();
+        currentIncomingCall = null;
+      }
+      showToast('已拒絕來電', 'info');
+    }
+
+    // ============================================
+    // 主動建立/呼叫端流程
+    // ============================================
+    async function startPreviewFlow(isJoining) {
+      const name = usernameInput.value.trim();
+      if (!name) {
+        showToast('請先輸入一個通話名稱', 'error');
+        return;
+      }
+
+      if (isJoining && !targetPeerIdInput.value.trim()) {
+        showToast('請輸入對方的 FaceTime 房號', 'error');
+        return;
+      }
+
+      isSimulationMode = false;
+
+      // 轉場至預覽畫面
+      lobbyScreen.classList.add('hidden');
+      previewScreen.classList.remove('hidden');
+
+      const actionText = document.getElementById('call-action-text');
+      const actionSubtitle = document.getElementById('preview-subtitle');
+      
+      if (isJoining) {
+        actionText.innerText = "加入 FaceTime 通話";
+        actionSubtitle.innerText = `準備撥打至: ${targetPeerIdInput.value.trim()}`;
+      } else {
+        actionText.innerText = "建立並開始等待";
+        actionSubtitle.innerText = "正在等待好友加入您所建立的對話";
+      }
+
+      // 開啟鏡頭預覽
+      try {
+        const stream = await requestMediaStream();
+        localStream = stream;
+        previewLocalVideo.srcObject = stream;
+        document.getElementById('permission-warning').classList.add('hidden');
+        previewLocalVideo.classList.remove('hidden');
+      } catch (err) {
+        console.warn('無法開啟預覽攝影機:', err);
+        document.getElementById('permission-warning').classList.remove('hidden');
+        previewLocalVideo.classList.add('hidden');
+      }
+    }
+
+    function backToLobby() {
+      stopLocalStream();
+      previewScreen.classList.add('hidden');
+      lobbyScreen.classList.remove('hidden');
+    }
+
+    // 開始建立實際 WebRTC 通話
+    async function executeCallFlow() {
+      if (!localStream) {
+        try {
+          localStream = await requestMediaStream();
+        } catch(e) {
+          showToast('無法取得影像設備，嘗試無相機通話', 'info');
+        }
+      }
+
+      // 切換至通話螢幕
+      previewScreen.classList.add('hidden');
+      callScreen.classList.remove('hidden');
+
+      if (localStream) {
+        localVideo.srcObject = localStream;
+        document.getElementById('local-video-off-mask').classList.add('hidden');
+      } else {
+        document.getElementById('local-video-off-mask').classList.remove('hidden');
+      }
+
+      const targetId = targetPeerIdInput.value.trim();
+
+      if (targetId && targetId !== myPeer.id) {
+        // 主動發起 P2P Call 呼叫對方
+        showToast('發起 FaceTime 呼叫中...', 'info');
+        document.getElementById('remote-caller-id').innerText = targetId;
+        document.getElementById('remote-status-title').innerText = "正在連線...";
+        document.getElementById('remote-status-subtitle').innerText = "等待對方按下接聽鍵";
+
+        const call = myPeer.call(targetId, localStream);
+        setupCallStreams(call);
+      } else {
+        // 獨自建房，等待他人加入
+        document.getElementById('remote-caller-id').innerText = "我的房號: " + myPeer.id;
+        document.getElementById('remote-status-title').innerText = "正在等待對方加入...";
+        document.getElementById('remote-status-subtitle').innerText = `請提供您的房號給對方： ${myPeer.id}`;
+      }
+
+      startCallTimer();
+    }
+
+    // 綁定 WebRTC 的 Stream 流事件
+    function setupCallStreams(call) {
+      activeCall = call;
+
+      call.on('stream', (remoteStream) => {
+        // 雙端接通，成功接收到影像
+        document.getElementById('remote-status-overlay').classList.add('hidden');
+        remoteVideo.srcObject = remoteStream;
+        showToast('FaceTime 視訊連線成功！', 'success');
+      });
+
+      call.on('close', () => {
+        showToast('通話已由對方掛斷', 'info');
+        endCall();
+      });
+
+      call.on('error', (err) => {
+        console.error('Call 發生連線錯誤:', err);
+        showToast('通話連線意外中斷', 'error');
+        endCall();
+      });
+    }
+
+    // ============================================
+    // 專屬：單人快速模擬通話模式
+    // ============================================
+    async function startSimulationCall() {
+      isSimulationMode = true;
+      lobbyScreen.classList.add('hidden');
+      callScreen.classList.remove('hidden');
+
+      document.getElementById('remote-caller-id').innerText = "模擬遠端用戶 (+852 5543 9392)";
+      document.getElementById('remote-status-title').innerText = "正在建立模擬影像中...";
+      document.getElementById('remote-status-subtitle').innerText = "請稍候...";
+
+      // 開啟本地預覽
+      try {
+        localStream = await requestMediaStream();
+        localVideo.srcObject = localStream;
+        document.getElementById('local-video-off-mask').classList.add('hidden');
+      } catch (e) {
+        document.getElementById('local-video-off-mask').classList.remove('hidden');
+      }
+
+      // 模擬 1.5 秒後建立連線，並使用 Canvas 動態渲染模擬遠端畫面
+      setTimeout(() => {
+        document.getElementById('remote-status-overlay').classList.add('hidden');
+        
+        const canvas = document.createElement('canvas');
+        canvas.width = 640;
+        canvas.height = 480;
+        const ctx = canvas.getContext('2d');
+        
+        simulationStream = canvas.captureStream(30);
+        remoteVideo.srcObject = simulationStream;
+
+        let angle = 0;
+        function drawSimulatedPerson() {
+          if (!isSimulationMode) return;
+          angle += 0.04;
+
+          // 背景漸層
+          const grad = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+          grad.addColorStop(0, '#1c1c2e');
+          grad.addColorStop(1, '#09090e');
+          ctx.fillStyle = grad;
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+          // 動態科技光圈
+          ctx.strokeStyle = 'rgba(48, 209, 88, 0.5)';
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          const radius = 110 + Math.sin(angle * 2.5) * 12;
+          ctx.arc(canvas.width/2, canvas.height/2 - 30, radius, 0, Math.PI * 2);
+          ctx.stroke();
+
+          // 繪製遠端仿人臉結構
+          ctx.fillStyle = '#2c2d3e';
+          // 頭
+          ctx.beginPath();
+          ctx.arc(canvas.width/2, canvas.height/2 - 40, 55, 0, Math.PI*2);
+          ctx.fill();
+          // 身體
+          ctx.beginPath();
+          ctx.ellipse(canvas.width/2, canvas.height/2 + 85, 95, 65, 0, 0, Math.PI, true);
+          ctx.fill();
+
+          // 動態眼部
+          ctx.fillStyle = 'rgba(48, 209, 88, 0.85)';
+          ctx.beginPath();
+          ctx.arc(canvas.width/2 - 18, canvas.height/2 - 45, 5 + Math.cos(angle)*1.5, 0, Math.PI*2);
+          ctx.arc(canvas.width/2 + 18, canvas.height/2 - 45, 5 + Math.cos(angle)*1.5, 0, Math.PI*2);
+          ctx.fill();
+
+          // 浮動文字提示
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.45)';
+          ctx.font = '15px -apple-system, sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText("FaceTime 模擬影音傳輸中...", canvas.width/2, canvas.height - 70);
+
+          requestAnimationFrame(drawSimulatedPerson);
+        }
+        
+        drawSimulatedPerson();
+        showToast('成功進入模擬 FaceTime 測試模式', 'success');
+      }, 1500);
+
+      startCallTimer();
+    }
+
+    // ============================================
+    // 設備控制與自適應介面
+    // ============================================
+    function toggleLocalVideo(page) {
+      isVideoEnabled = !isVideoEnabled;
+      
+      if (localStream) {
+        localStream.getVideoTracks().forEach(track => track.enabled = isVideoEnabled);
+      }
+
+      const btn = document.getElementById(`${page}-btn-video`);
+      const icon = document.getElementById(`${page}-icon-video`);
+      const mask = document.getElementById(`${page === 'preview' ? 'preview-video-off-mask' : 'local-video-off-mask'}`);
+
+      if (isVideoEnabled) {
+        btn.classList.remove('bg-red-600', 'text-white');
+        btn.classList.add('glass-light', 'bg-white/15');
+        icon.innerHTML = '<i data-lucide="video" class="w-5 h-5"></i>';
+        if (mask) mask.classList.add('hidden');
+      } else {
+        btn.classList.add('bg-red-600', 'text-white');
+        btn.classList.remove('glass-light', 'bg-white/15');
+        icon.innerHTML = '<i data-lucide="video-off" class="w-5 h-5"></i>';
+        if (mask) mask.classList.remove('hidden');
+      }
+      lucide.createIcons();
+      showToast(isVideoEnabled ? '相機已啟用' : '相機已暫停', 'info');
+    }
+
+    function toggleLocalAudio(page) {
+      isAudioEnabled = !isAudioEnabled;
+
+      if (localStream) {
+        localStream.getAudioTracks().forEach(track => track.enabled = isAudioEnabled);
+      }
+
+      const btn = document.getElementById(`${page}-btn-audio`);
+      const icon = document.getElementById(`${page}-icon-audio`);
+
+      if (isAudioEnabled) {
+        btn.classList.remove('bg-red-600', 'text-white');
+        btn.classList.add('glass-light', 'bg-white/15');
+        icon.innerHTML = '<i data-lucide="mic" class="w-5 h-5"></i>';
+      } else {
+        btn.classList.add('bg-red-600', 'text-white');
+        btn.classList.remove('glass-light', 'bg-white/15');
+        icon.innerHTML = '<i data-lucide="mic-off" class="w-5 h-5"></i>';
+      }
+      lucide.createIcons();
+      showToast(isAudioEnabled ? '麥克風通話中' : '麥克風已靜音', 'info');
+    }
+
+    // 掛斷與還原狀態
+    function endCall() {
+      stopCallTimer();
+      stopLocalStream();
+      stopLocalRingtone();
+      
+      if (activeCall) {
+        activeCall.close();
+        activeCall = null;
+      }
+
+      isSimulationMode = false;
+      if (simulationStream) {
+        simulationStream.getTracks().forEach(t => t.stop());
+        simulationStream = null;
+      }
+
+      remoteVideo.srcObject = null;
+      localVideo.srcObject = null;
+
+      document.getElementById('remote-status-overlay').classList.remove('hidden');
+      callScreen.classList.add('hidden');
+      lobbyScreen.classList.remove('hidden');
+      showToast('通話已斷開連線', 'info');
+    }
+
+    // 切換全螢幕自適應裁切/適應比例
+    function toggleScale() {
+      isScaleReduced = !isScaleReduced;
+      const remoteVid = document.getElementById('remote-video');
+      const icon = document.getElementById('scale-icon');
+
+      if (isScaleReduced) {
+        remoteVid.style.objectFit = 'contain';
+        icon.innerHTML = '<i data-lucide="maximize-2" class="w-5 h-5"></i>';
+        showToast('已調整為：適應視窗大小', 'info');
+      } else {
+        remoteVid.style.objectFit = 'cover';
+        icon.innerHTML = '<i data-lucide="minimize-2" class="w-5 h-5"></i>';
+        showToast('已調整為：全螢幕填滿', 'info');
+      }
+      lucide.createIcons();
+    }
+
+    // 變更子畫面邊角位置
+    function togglePiPPosition() {
+      const pip = document.getElementById('pip-container');
+      pip.classList.remove('top-24', 'left-6', 'right-6', 'bottom-28');
+
+      pipCorner = (pipCorner % 4) + 1;
+
+      switch(pipCorner) {
+        case 1:
+          pip.classList.add('top-24', 'left-6');
+          break;
+        case 2:
+          pip.classList.add('top-24', 'right-6');
+          break;
+        case 3:
+          pip.classList.add('bottom-28', 'right-6'); // 預設
+          break;
+        case 4:
+          pip.classList.add('bottom-28', 'left-6');
+          break;
+      }
+      showToast('已變更小畫面對齊方向', 'info');
+    }
+
+    // 互動特效：滿螢幕愛心
+    function triggerFeedbackEffect() {
+      const container = document.getElementById('fx-container');
+      const count = 16;
+      
+      for(let i=0; i<count; i++) {
+        setTimeout(() => {
+          const heart = document.createElement('div');
+          heart.innerHTML = '❤️';
+          heart.className = 'absolute text-3xl transition-all duration-1000 ease-out pointer-events-none opacity-100';
+          
+          const startX = window.innerWidth / 2 + (Math.random() * 220 - 110);
+          const startY = window.innerHeight;
+          
+          heart.style.left = startX + 'px';
+          heart.style.top = startY + 'px';
+          container.appendChild(heart);
+          
+          setTimeout(() => {
+            heart.style.transform = `translate(${Math.random() * 120 - 60}px, -${window.innerHeight * 0.75}px) scale(${1.4 + Math.random() * 0.8})`;
+            heart.style.opacity = '0';
+          }, 50);
+          
+          setTimeout(() => heart.remove(), 1100);
+        }, i * 80);
+      }
+    }
+
+    // 通話設定彈窗
+    function showCallOptionsMenu() {
+      optionsPanel.classList.remove('hidden');
+      optionsPanel.classList.add('flex');
+      setTimeout(() => {
+        optionsContent.classList.remove('translate-y-full');
+      }, 50);
+    }
+
+    function closeCallOptionsMenu() {
+      optionsContent.classList.add('translate-y-full');
+      setTimeout(() => {
+        optionsPanel.classList.remove('flex');
+        optionsPanel.classList.add('hidden');
+      }, 300);
+    }
+
+    optionsPanel.addEventListener('click', (e) => {
+      if(e.target === optionsPanel) closeCallOptionsMenu();
+    });
+
+    // ============================================
+    // 底層工具函數
+    // ============================================
+    async function requestMediaStream() {
+      const constraints = {
+        video: {
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+          facingMode: 'user'
+        },
+        audio: true
+      };
+      return await navigator.mediaDevices.getUserMedia(constraints);
+    }
+
+    function stopLocalStream() {
+      if (localStream) {
+        localStream.getTracks().forEach(track => track.stop());
+        localStream = null;
+      }
+    }
+
+    // 複製連結
+    function copyInviteLink() {
+      const myId = myPeerIdInput.value;
+      if (!myId) return;
+
+      const link = `${window.location.origin}${window.location.pathname}?room=${myId}`;
+      const dummy = document.createElement('input');
+      document.body.appendChild(dummy);
+      dummy.value = link;
+      dummy.select();
+      document.execCommand('copy');
+      document.body.removeChild(dummy);
+
+      showToast('FaceTime 專屬邀請連結已複製！', 'success');
+    }
+
+    // 訊息彈窗
+    function showToast(text, type='info') {
+      const toast = document.getElementById('toast');
+      const toastText = document.getElementById('toast-text');
+      const toastIcon = document.getElementById('toast-icon');
+
+      toastText.innerText = text;
+      
+      if(type === 'success') {
+        toastIcon.innerHTML = '<i data-lucide="check-circle" class="w-5 h-5 text-appleGreen"></i>';
+      } else if (type === 'error') {
+        toastIcon.innerHTML = '<i data-lucide="alert-triangle" class="w-5 h-5 text-appleRed"></i>';
+      } else {
+        toastIcon.innerHTML = '<i data-lucide="info" class="w-5 h-5 text-blue-400"></i>';
+      }
+      lucide.createIcons();
+
+      toast.classList.remove('opacity-0', 'translate-y-[-20px]');
+      toast.classList.add('opacity-100', 'translate-y-0');
+
+      setTimeout(() => {
+        toast.classList.add('opacity-0', 'translate-y-[-20px]');
+        toast.classList.remove('opacity-100', 'translate-y-0');
+      }, 3500);
+    }
+
+    // 計時器
+    function startCallTimer() {
+      callSeconds = 0;
+      const timerLabel = document.getElementById('call-timer');
+      timerInterval = setInterval(() => {
+        callSeconds++;
+        const mins = String(Math.floor(callSeconds / 60)).padStart(2, '0');
+        const secs = String(callSeconds % 60).padStart(2, '0');
+        timerLabel.innerText = `${mins}:${secs}`;
+      }, 1000);
+    }
+
+    function stopCallTimer() {
+      if (timerInterval) {
+        clearInterval(timerInterval);
+        timerInterval = null;
+      }
+      document.getElementById('call-timer').innerText = "00:00";
+    }
+  </script>
+</body>
+</html>

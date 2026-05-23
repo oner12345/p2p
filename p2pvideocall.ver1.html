@@ -1,0 +1,1180 @@
+<!DOCTYPE html>
+<html lang="zh-Hant" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>P2P 視訊與語音通訊系統</title>
+    <!-- 引入 Tailwind CSS 提供現代化、響應式外觀 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 引入 Lucide 圖標庫 -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: #0b0f19;
+            /* 避免行動端下拉刷新影響體驗 */
+            overscroll-behavior-y: contain;
+        }
+        /* 自訂視訊容器比例與漸變邊框 */
+        .video-wrapper {
+            position: relative;
+            overflow: hidden;
+            border-radius: 1rem;
+            background: linear-gradient(145deg, #111827, #1f2937);
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3), 0 8px 10px -6px rgba(0, 0, 0, 0.3);
+        }
+        /* 隱藏滾動條但保持功能 */
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+    </style>
+</head>
+<body class="h-full text-gray-100 flex flex-col justify-between overflow-hidden">
+
+    <!-- 全域通知 Toast 容器 -->
+    <div id="toast-container" class="fixed top-5 right-5 z-50 flex flex-col gap-2 max-w-sm w-full pointer-events-none"></div>
+
+    <!-- 頂部導航欄 -->
+    <header class="border-b border-gray-800 bg-gray-900/80 backdrop-blur-md px-4 sm:px-6 py-3.5 sticky top-0 z-40 shrink-0">
+        <div class="max-w-7xl mx-auto flex items-center justify-between gap-4">
+            <div class="flex items-center gap-2.5">
+                <div class="p-2 bg-indigo-600 rounded-lg text-white">
+                    <i data-lucide="video" class="w-5 h-5"></i>
+                </div>
+                <div>
+                    <h1 class="text-sm sm:text-base font-bold tracking-tight leading-none">SyncRTC</h1>
+                    <span class="text-[10px] sm:text-xs text-gray-400">極簡響應式 P2P 視訊語音系統</span>
+                </div>
+            </div>
+            
+            <div class="flex items-center gap-2">
+                <!-- 連線狀態徽章 -->
+                <span id="connection-status" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-gray-800 text-gray-400">
+                    <span class="w-1.5 h-1.5 rounded-full bg-gray-500 animate-pulse"></span>
+                    未連線
+                </span>
+                
+                <!-- 手機版/平板：開啟連線控制中心按鈕 -->
+                <button id="btn-toggle-sidebar-header" class="lg:hidden p-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors flex items-center gap-1 text-xs font-semibold" title="開啟控制台">
+                    <i data-lucide="menu" class="w-4 h-4"></i>
+                    <span>連線/聊天</span>
+                </button>
+
+                <button id="btn-settings" class="p-2 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors" title="連線設定">
+                    <i data-lucide="settings" class="w-4 h-4"></i>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- 主要內容區 -->
+    <main class="flex-grow max-w-7xl w-full mx-auto p-3 sm:p-6 lg:p-8 flex flex-col lg:flex-row gap-4 lg:gap-6 overflow-hidden relative">
+        
+        <!-- 左側：視訊串流區域 -->
+        <div class="flex-grow flex flex-col gap-3 sm:gap-4 min-h-0 h-full justify-between">
+            
+            <!-- 視訊網格佈局：智慧響應式排列 -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 flex-grow min-h-0 items-center">
+                
+                <!-- 遠端視訊 (Remote) -->
+                <div class="video-wrapper aspect-video sm:aspect-auto sm:h-full flex flex-col justify-between border border-gray-800 group relative">
+                    <video id="remote-video" autoplay playsinline class="w-full h-full object-cover rounded-2xl bg-black"></video>
+                    <!-- 未連線時的預設佔位符 -->
+                    <div id="remote-placeholder" class="absolute inset-0 flex flex-col items-center justify-center bg-gray-900/95 z-10 transition-opacity duration-300">
+                        <div class="p-3 bg-gray-800 rounded-full text-gray-500 mb-2">
+                            <i data-lucide="user-x" class="w-8 h-8 sm:w-10 sm:h-10"></i>
+                        </div>
+                        <p class="text-xs sm:text-sm text-gray-400">等待遠端使用者連線...</p>
+                    </div>
+                    <!-- 浮動標籤 -->
+                    <div class="absolute bottom-3 left-3 z-20 px-2 py-0.5 bg-black/60 backdrop-blur-md rounded-md text-[10px] sm:text-xs font-medium">
+                        遠端使用者 (Remote)
+                    </div>
+                </div>
+
+                <!-- 本端視訊 (Local) -->
+                <div class="video-wrapper aspect-video sm:aspect-auto sm:h-full flex flex-col justify-between border border-gray-800 relative">
+                    <video id="local-video" autoplay playsinline muted class="w-full h-full object-cover rounded-2xl bg-black"></video>
+                    <!-- 本端相機未開啟預設畫面 -->
+                    <div id="local-placeholder" class="absolute inset-0 flex flex-col items-center justify-center bg-gray-900/95 z-10">
+                        <div class="p-3 bg-gray-800 rounded-full text-gray-500 mb-2">
+                            <i data-lucide="video-off" class="w-8 h-8 sm:w-10 sm:h-10"></i>
+                        </div>
+                        <p class="text-xs sm:text-sm text-gray-400">相機未啟動</p>
+                    </div>
+                    <!-- 浮動標籤與音量波形 -->
+                    <div class="absolute bottom-3 left-3 z-20 flex items-center gap-1.5">
+                        <span class="px-2 py-0.5 bg-black/60 backdrop-blur-md rounded-md text-[10px] sm:text-xs font-medium">
+                            本端視訊 (You)
+                        </span>
+                        <!-- 音量波形 Canvas -->
+                        <canvas id="volume-visualizer" class="w-12 h-4 sm:w-16 sm:h-5 rounded bg-black/40"></canvas>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- 控制工具欄 -->
+            <div class="bg-gray-900/90 border border-gray-800 p-3 sm:p-4 rounded-2xl flex justify-center items-center gap-3 sm:gap-4 shadow-xl shrink-0">
+                <button id="btn-toggle-mic" class="ctrl-btn bg-gray-800 hover:bg-gray-700 text-gray-200 p-3 sm:p-4 rounded-xl transition-all duration-200 active:scale-95" title="切換靜音">
+                    <i data-lucide="mic" class="w-5 h-5 sm:w-6 sm:h-6"></i>
+                </button>
+                <button id="btn-toggle-video" class="ctrl-btn bg-gray-800 hover:bg-gray-700 text-gray-200 p-3 sm:p-4 rounded-xl transition-all duration-200 active:scale-95" title="切換鏡頭">
+                    <i data-lucide="video" class="w-5 h-5 sm:w-6 sm:h-6"></i>
+                </button>
+                <button id="btn-share-screen" class="ctrl-btn bg-gray-800 hover:bg-gray-700 text-gray-200 p-3 sm:p-4 rounded-xl transition-all duration-200 active:scale-95" title="分享螢幕">
+                    <i data-lucide="monitor" class="w-5 h-5 sm:w-6 sm:h-6"></i>
+                </button>
+                <button id="btn-toggle-chat" class="ctrl-btn bg-indigo-600 hover:bg-indigo-700 text-white p-3 sm:p-4 rounded-xl lg:hidden transition-all duration-200" title="開啟連線與聊天">
+                    <i data-lucide="message-square" class="w-5 h-5 sm:w-6 sm:h-6"></i>
+                </button>
+                <div class="h-6 w-px bg-gray-800"></div>
+                <button id="btn-hangup" class="bg-red-600 hover:bg-red-700 text-white px-4 sm:px-6 py-3 sm:py-4 rounded-xl font-medium transition-all duration-200 active:scale-95 flex items-center gap-1.5 sm:gap-2 text-xs sm:text-sm" title="掛斷">
+                    <i data-lucide="phone-off" class="w-4 h-4 sm:w-5 sm:h-5"></i>
+                    <span>結束通話</span>
+                </button>
+            </div>
+
+        </div>
+
+        <!-- 手機版側邊欄背景遮罩 -->
+        <div id="sidebar-backdrop" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 hidden lg:hidden transition-opacity duration-300"></div>
+
+        <!-- 右側：側邊欄 (通訊設定、房間管理與即時文字聊天) -->
+        <!-- 手機端設計為滑入式抽屜，桌面端保持靜態側邊欄 -->
+        <aside id="chat-sidebar" class="fixed inset-y-0 right-0 z-50 w-full max-w-sm sm:w-96 bg-gray-950 lg:bg-transparent border-l border-gray-800 lg:border-l-0 p-4 sm:p-6 lg:p-0 flex flex-col gap-4 shrink-0 transform translate-x-full lg:translate-x-0 transition-transform duration-300 ease-in-out lg:static lg:h-full lg:flex">
+            
+            <!-- 房間及連線面板 -->
+            <div class="bg-gray-900 border border-gray-800 p-4 sm:p-5 rounded-2xl relative">
+                
+                <!-- 關閉按鈕 (手機版專用) -->
+                <button id="btn-close-control-panel" class="absolute top-4 right-4 text-gray-400 hover:text-white lg:hidden p-1.5 hover:bg-gray-800 rounded-lg transition-colors" title="關閉控制面板">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+
+                <h2 class="text-xs sm:text-sm font-semibold text-gray-400 mb-3 flex items-center gap-2 pr-8">
+                    <i data-lucide="network" class="w-4 h-4 text-indigo-500"></i>
+                    通訊連線控制中心
+                </h2>
+
+                <!-- 連線模式切換 Tab -->
+                <div class="grid grid-cols-2 gap-2 p-1 bg-gray-950 rounded-lg mb-4 text-[11px] sm:text-xs">
+                    <button id="tab-cloud" class="py-1.5 sm:py-2 rounded-md font-medium bg-indigo-600 text-white transition-all">
+                        雲端快連 (推薦)
+                    </button>
+                    <button id="tab-manual" class="py-1.5 sm:py-2 rounded-md font-medium text-gray-400 hover:text-white transition-all">
+                        手動 SDP 拷貝
+                    </button>
+                </div>
+
+                <!-- 雲端模式內容 -->
+                <div id="panel-cloud" class="space-y-3.5">
+                    <div class="space-y-1.5">
+                        <label class="text-[10px] sm:text-xs text-gray-400">步驟 1：建立全新通話房間</label>
+                        <button id="btn-create-room" class="w-full py-2 sm:py-2.5 bg-indigo-600 hover:bg-indigo-700 active:scale-98 rounded-lg font-medium transition-all text-xs sm:text-sm flex items-center justify-center gap-1.5 shadow-lg shadow-indigo-600/15">
+                            <i data-lucide="plus" class="w-4 h-4"></i>
+                            建立通訊房間碼
+                        </button>
+                    </div>
+
+                    <!-- 房間號碼顯示與複製 -->
+                    <div id="room-info-box" class="hidden p-3 bg-gray-950 border border-gray-800 rounded-lg space-y-1.5">
+                        <div class="flex justify-between items-center">
+                            <span class="text-[10px] sm:text-xs text-indigo-400 font-semibold">您的通訊房間碼</span>
+                            <span class="text-[9px] px-1.5 py-0.5 bg-green-500/10 text-green-400 rounded">等待對方加入</span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <input id="room-id-display" type="text" readonly class="bg-transparent text-base sm:text-lg font-mono font-bold w-full focus:outline-none tracking-widest text-center" value="------">
+                            <button id="btn-copy-room" class="p-1.5 bg-gray-800 hover:bg-gray-700 rounded-md transition-colors" title="複製房間碼">
+                                <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+                            </button>
+                        </div>
+                        <p class="text-[10px] text-gray-400">請將此代碼提供給另一位使用者輸入以建立 P2P 直連。</p>
+                    </div>
+
+                    <div class="relative flex py-1 items-center">
+                        <div class="flex-grow border-t border-gray-800"></div>
+                        <span class="flex-shrink mx-3 text-[10px] text-gray-500 font-medium">或</span>
+                        <div class="flex-grow border-t border-gray-800"></div>
+                    </div>
+
+                    <div class="space-y-1.5">
+                        <label class="text-[10px] sm:text-xs text-gray-400">步驟 2：加入現有房間</label>
+                        <div class="flex gap-2">
+                            <input id="room-id-input" type="text" placeholder="輸入對方的房間碼..." class="flex-grow px-3 py-1.5 sm:py-2 bg-gray-950 border border-gray-800 rounded-lg text-xs sm:text-sm font-mono tracking-wider focus:outline-none focus:border-indigo-500 transition-colors">
+                            <button id="btn-join-room" class="px-3 sm:px-4 bg-gray-850 hover:bg-gray-850 border border-gray-800 hover:border-indigo-500 active:scale-95 rounded-lg text-xs sm:text-sm font-medium transition-all flex items-center gap-1 shrink-0">
+                                <i data-lucide="log-in" class="w-3.5 h-3.5"></i>
+                                加入
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 手動模式內容 -->
+                <div id="panel-manual" class="space-y-3.5 hidden text-[11px] sm:text-xs">
+                    <p class="text-gray-400 leading-relaxed mb-1">去中心化模式下，您需要手動傳送與接收連線憑證 (SDP)。</p>
+                    
+                    <div class="grid grid-cols-2 gap-2">
+                        <button id="btn-manual-create" class="py-2 bg-gray-800 hover:bg-gray-700 rounded-lg font-medium transition-colors">
+                            1. 生成 Offer
+                        </button>
+                        <button id="btn-manual-answer" class="py-2 bg-gray-800 hover:bg-gray-700 rounded-lg font-medium transition-colors">
+                            2. 響應 Answer
+                        </button>
+                    </div>
+
+                    <div class="space-y-1.5">
+                        <label class="text-gray-400">本地端 SDP 憑證 (複製並發送給對方)</label>
+                        <textarea id="manual-local-sdp" readonly class="w-full h-14 bg-gray-950 border border-gray-800 p-2 rounded-lg font-mono text-[9px] focus:outline-none resize-none no-scrollbar" placeholder="點擊上方按鈕以生成本端連線密碼"></textarea>
+                        <button id="btn-copy-local-sdp" class="w-full py-1.5 bg-gray-800 hover:bg-gray-700 rounded-md font-medium text-center transition-colors">
+                            複製本地端 SDP
+                        </button>
+                    </div>
+
+                    <div class="space-y-1.5">
+                        <label class="text-gray-400">遠端 SDP 憑證 (貼上對方的憑證)</label>
+                        <textarea id="manual-remote-sdp" class="w-full h-14 bg-gray-950 border border-gray-800 p-2 rounded-lg font-mono text-[9px] focus:outline-none resize-none no-scrollbar" placeholder="在此處貼上對方傳送給您的 SDP..."></textarea>
+                        <button id="btn-apply-remote-sdp" class="w-full py-1.5 bg-indigo-600 hover:bg-indigo-700 rounded-md font-medium text-center transition-colors text-white">
+                            套用遠端憑證並建立連線
+                        </button>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- P2P 文字聊天室 -->
+            <div class="flex-grow bg-gray-900 border border-gray-800 rounded-2xl flex flex-col overflow-hidden min-h-0">
+                <!-- 聊天室頭部 -->
+                <div class="px-4 py-2.5 border-b border-gray-800 flex items-center justify-between bg-gray-950 shrink-0">
+                    <span class="text-xs sm:text-sm font-semibold flex items-center gap-1.5">
+                        <i data-lucide="message-square" class="w-3.5 h-3.5 text-indigo-500"></i>
+                        P2P 加密聊天通道
+                    </span>
+                    <span id="chat-badge" class="px-2 py-0.5 rounded-full bg-gray-800 text-gray-400 text-[9px] sm:text-[10px]">離線</span>
+                </div>
+
+                <!-- 訊息展示區 -->
+                <div id="chat-messages" class="flex-grow p-4 space-y-3 overflow-y-auto text-xs sm:text-sm no-scrollbar">
+                    <div class="text-center text-[11px] text-gray-500 italic py-4">
+                        尚未建立連線通道。連線建立後，即可開啟超低延遲點對點加密聊天。
+                    </div>
+                </div>
+
+                <!-- 訊息輸入區 -->
+                <form id="chat-form" class="p-2 sm:p-3 border-t border-gray-800 bg-gray-950 flex gap-2 shrink-0">
+                    <input id="chat-input" type="text" autocomplete="off" disabled placeholder="連線成功後即可輸入訊息..." class="flex-grow px-3 py-1.5 sm:py-2 bg-gray-900 border border-gray-800 rounded-lg text-xs sm:text-sm focus:outline-none focus:border-indigo-500 transition-colors disabled:opacity-50">
+                    <button type="submit" id="btn-send-message" disabled class="p-1.5 sm:p-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors disabled:opacity-50 flex items-center justify-center">
+                        <i data-lucide="send" class="w-4 h-4"></i>
+                    </button>
+                </form>
+            </div>
+
+        </aside>
+
+    </main>
+
+    <!-- 底部資訊與授權 -->
+    <footer class="border-t border-gray-800 py-3 bg-gray-950/80 text-center text-[10px] text-gray-500 shrink-0">
+        <p>© 2026 SyncRTC Project. 本系統之連線採用 WebRTC 直連技術，對話與影音完全點對點傳輸不經伺服器儲存。</p>
+    </footer>
+
+    <!-- 連線設定 Modal -->
+    <div id="modal-settings" class="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4 hidden">
+        <div class="bg-gray-900 border border-gray-800 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl">
+            <div class="px-6 py-4 border-b border-gray-800 flex justify-between items-center">
+                <h3 class="font-bold flex items-center gap-2 text-sm sm:text-base">
+                    <i data-lucide="settings" class="w-5 h-5 text-indigo-500"></i>
+                    WebRTC 高級參數配置
+                </h3>
+                <button id="btn-close-settings" class="text-gray-400 hover:text-white">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+            <div class="p-6 space-y-4 text-xs sm:text-sm">
+                <div>
+                    <label class="block text-xs text-gray-400 mb-1">STUN / TURN 穿透伺服器節點列表 (JSON 陣列)</label>
+                    <textarea id="settings-ice-servers" rows="5" class="w-full bg-gray-950 border border-gray-800 p-3 rounded-lg font-mono text-xs focus:outline-none focus:border-indigo-500"></textarea>
+                </div>
+                <div class="p-3 bg-indigo-950/30 border border-indigo-900/50 rounded-lg text-xs leading-relaxed text-indigo-300">
+                    預設已為您搭載 Google 公用高效 STUN 解析服務，能有效突破 90% 以上常見的對等對稱型 NAT。
+                </div>
+                <button id="btn-save-settings" class="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 rounded-lg font-medium transition-all text-white">
+                    儲存配置並套用
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Firebase SDK 模組與應用核心 JavaScript -->
+    <script type="module">
+        // 導入 Firebase 模組化 SDK
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, getDoc, updateDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // ==========================================
+        // 1. 全域狀態與常數初始化
+        // ==========================================
+        const defaultIceServers = [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' },
+            { urls: 'stun:stun2.l.google.com:19302' },
+            { urls: 'stun:stun3.l.google.com:19302' },
+            { urls: 'stun:stun4.l.google.com:19302' }
+        ];
+
+        let iceConfiguration = { iceServers: defaultIceServers };
+        let localStream = null;
+        let remoteStream = null;
+        let peerConnection = null;
+        let dataChannel = null; // P2P Data Channel 實例
+        let currentRoomId = null;
+        let isCaller = false;
+        let isMuted = false;
+        let isVideoOff = false;
+        let screenSharingTrack = null;
+
+        // Firebase 整合狀態
+        let db = null;
+        let auth = null;
+        let user = null;
+        let appId = typeof __app_id !== 'undefined' ? __app_id : 'webrtc-p2p';
+        let firebaseSupported = false;
+
+        // 初始化 Lucide 圖標
+        lucide.createIcons();
+
+        // 預設填入進階設定中的 ICE 伺服器
+        document.getElementById('settings-ice-servers').value = JSON.stringify(defaultIceServers, null, 2);
+
+        // ==========================================
+        // 2. 自定義 Toast 系統
+        // ==========================================
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            
+            let bgClass = 'bg-gray-800 border-gray-700';
+            let icon = 'info';
+            
+            if (type === 'success') {
+                bgClass = 'bg-green-950/90 border-green-800 text-green-300';
+                icon = 'check-circle';
+            } else if (type === 'error') {
+                bgClass = 'bg-red-950/90 border-red-800 text-red-300';
+                icon = 'alert-triangle';
+            }
+
+            toast.className = `p-3.5 rounded-xl border ${bgClass} shadow-xl flex items-start gap-2.5 pointer-events-auto transition-all duration-300 transform translate-x-5 opacity-0`;
+            toast.innerHTML = `
+                <div class="shrink-0 mt-0.5"><i data-lucide="${icon}" class="w-4 h-4"></i></div>
+                <div class="text-[11px] sm:text-xs font-medium leading-relaxed">${message}</div>
+            `;
+            
+            container.appendChild(toast);
+            lucide.createIcons({ attrs: { class: 'lucide-custom' } });
+
+            // 觸發顯現動畫
+            setTimeout(() => {
+                toast.classList.remove('translate-x-5', 'opacity-0');
+                toast.classList.add('translate-x-0', 'opacity-100');
+            }, 10);
+
+            // 4秒後銷毀
+            setTimeout(() => {
+                toast.classList.add('translate-x-5', 'opacity-0');
+                setTimeout(() => toast.remove(), 300);
+            }, 4000);
+        }
+
+        // ==========================================
+        // 3. 手機端「抽屜式側邊欄」展示控制器 (RWD 解決方案)
+        // ==========================================
+        const sidebar = document.getElementById('chat-sidebar');
+        const backdrop = document.getElementById('sidebar-backdrop');
+
+        function openSidebar() {
+            sidebar.classList.remove('translate-x-full');
+            backdrop.classList.remove('hidden');
+        }
+
+        function closeSidebar() {
+            sidebar.classList.add('translate-x-full');
+            backdrop.classList.add('hidden');
+        }
+
+        // 監聽各種開啟與關閉按鈕
+        document.getElementById('btn-toggle-chat').addEventListener('click', openSidebar);
+        document.getElementById('btn-toggle-sidebar-header').addEventListener('click', openSidebar);
+        document.getElementById('btn-close-control-panel').addEventListener('click', closeSidebar);
+        backdrop.addEventListener('click', closeSidebar);
+
+        // ==========================================
+        // 4. Firebase 自動初始化 (RULE 1 & 3 規範)
+        // ==========================================
+        const initFirebase = async () => {
+            if (typeof __firebase_config !== 'undefined' && __firebase_config) {
+                try {
+                    const firebaseConfig = JSON.parse(__firebase_config);
+                    const app = initializeApp(firebaseConfig);
+                    auth = getAuth(app);
+                    db = getFirestore(app);
+                    
+                    // 執行 RULE 3：Auth Before Queries (先登入匿名帳號)
+                    if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                        await signInWithCustomToken(auth, __initial_auth_token);
+                    } else {
+                        await signInAnonymously(auth);
+                    }
+
+                    onAuthStateChanged(auth, (u) => {
+                        user = u;
+                        if (user) {
+                            firebaseSupported = true;
+                            showToast('雲端訊號中繼站（Cloud Signaling）已成功啟用！您可以建立/輸入號碼進行對接。', 'success');
+                        }
+                    });
+                } catch (e) {
+                    console.error("Firebase 初始化失敗，將啟用純手動去中心化模式:", e);
+                    disableCloudTab();
+                }
+            } else {
+                console.log("未檢測到系統 Firebase 設定，自動轉換為純手動去中心化模式。");
+                disableCloudTab();
+            }
+        };
+
+        function disableCloudTab() {
+            firebaseSupported = false;
+            const tabCloud = document.getElementById('tab-cloud');
+            const tabManual = document.getElementById('tab-manual');
+            tabCloud.disabled = true;
+            tabCloud.classList.add('opacity-40', 'cursor-not-allowed');
+            switchTab('manual');
+            showToast('尚未配置 Firebase 雲端服務。系統已自動將連線模式切換至「手動 SDP 拷貝」模式。您可以手動交換連線密鑰。', 'info');
+        }
+
+        await initFirebase();
+
+        // ==========================================
+        // 5. 音訊視覺化器 (HTML5 Web Audio API)
+        // ==========================================
+        let audioCtx = null;
+        let analyser = null;
+        let visualizerAnimation = null;
+
+        function startAudioVisualizer(stream) {
+            const canvas = document.getElementById('volume-visualizer');
+            const ctx = canvas.getContext('2d');
+            
+            if (audioCtx) {
+                audioCtx.close();
+            }
+
+            try {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                analyser = audioCtx.createAnalyser();
+                const source = audioCtx.createMediaStreamSource(stream);
+                source.connect(analyser);
+                analyser.fftSize = 32;
+                const bufferLength = analyser.frequencyBinCount;
+                const dataArray = new Uint8Array(bufferLength);
+
+                function draw() {
+                    visualizerAnimation = requestAnimationFrame(draw);
+                    analyser.getByteFrequencyData(dataArray);
+
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    
+                    const barWidth = (canvas.width / bufferLength) * 1.5;
+                    let barHeight;
+                    let x = 0;
+
+                    for (let i = 0; i < bufferLength; i++) {
+                        barHeight = (dataArray[i] / 255) * canvas.height * 1.2;
+                        
+                        ctx.fillStyle = `rgb(${dataArray[i] + 100}, 99, 246)`;
+                        ctx.fillRect(x, canvas.height - barHeight, barWidth - 1, barHeight);
+
+                        x += barWidth;
+                    }
+                }
+                draw();
+            } catch (err) {
+                console.warn("無法啟動音訊波形視覺化:", err);
+            }
+        }
+
+        // ==========================================
+        // 6. 媒體串流獲取 (獲取相機、麥克風)
+        // ==========================================
+        async function getLocalMedia() {
+            if (localStream) return localStream;
+
+            try {
+                showToast('正在向系統要求媒體權限 (鏡頭/麥克風)...', 'info');
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 },
+                        facingMode: "user"
+                    },
+                    audio: true
+                });
+                
+                localStream = stream;
+                document.getElementById('local-video').srcObject = stream;
+                document.getElementById('local-placeholder').classList.add('hidden');
+                
+                startAudioVisualizer(stream);
+                showToast('已成功啟用本機攝影機與麥克風設備！', 'success');
+                return stream;
+            } catch (err) {
+                console.error("無法取得媒體串流:", err);
+                showToast('無法存取您的相機與麥克風。請確認是否有授權網頁權限，或該鏡頭被其他應用程式佔用中！', 'error');
+                throw err;
+            }
+        }
+
+        // ==========================================
+        // 7. WebRTC 連線配置與核心邏輯
+        // ==========================================
+        async function initializePeer(isOfferCreator) {
+            const stream = await getLocalMedia();
+            
+            peerConnection = new RTCPeerConnection(iceConfiguration);
+            
+            stream.getTracks().forEach(track => {
+                peerConnection.addTrack(track, stream);
+            });
+
+            peerConnection.ontrack = (event) => {
+                remoteStream = event.streams[0];
+                document.getElementById('remote-video').srcObject = remoteStream;
+                document.getElementById('remote-placeholder').classList.add('hidden');
+                updateConnectionStatus('已連線', 'bg-green-500');
+                showToast('P2P 直連建立成功！影音通道已安全建立。', 'success');
+                
+                // 連線建立成功後，若是手機版則自動關閉控制抽屜，讓使用者直接看到對方的畫面
+                if (window.innerWidth < 1024) {
+                    closeSidebar();
+                }
+            };
+
+            peerConnection.oniceconnectionstatechange = () => {
+                const state = peerConnection.iceConnectionState;
+                console.log("ICE 狀態變更為:", state);
+                if (state === 'connected') {
+                    updateConnectionStatus('已連線', 'bg-green-500');
+                    document.getElementById('chat-badge').innerText = '線上';
+                    document.getElementById('chat-badge').className = 'px-2 py-0.5 rounded-full bg-green-950 text-green-400 text-[10px]';
+                    document.getElementById('chat-input').disabled = false;
+                    document.getElementById('btn-send-message').disabled = false;
+                } else if (state === 'disconnected' || state === 'failed') {
+                    updateConnectionStatus('連線中斷', 'bg-red-500');
+                    document.getElementById('chat-badge').innerText = '中斷';
+                    document.getElementById('chat-badge').className = 'px-2 py-0.5 rounded-full bg-red-950 text-red-400 text-[10px]';
+                    showToast('對端使用者已斷開連線！', 'error');
+                }
+            };
+
+            if (isOfferCreator) {
+                dataChannel = peerConnection.createDataChannel("chatChannel");
+                setupDataChannel(dataChannel);
+            } else {
+                peerConnection.ondatachannel = (event) => {
+                    dataChannel = event.channel;
+                    setupDataChannel(dataChannel);
+                };
+            }
+        }
+
+        function setupDataChannel(channel) {
+            channel.onopen = () => {
+                console.log("P2P Data Channel 已啟動。");
+                addSystemChatMessage("點對點加密數據通道已啟用，連線安全無虞。");
+            };
+            channel.onmessage = (event) => {
+                receiveMessage(event.data);
+            };
+            channel.onclose = () => {
+                addSystemChatMessage("數據通道已被關閉。");
+            };
+        }
+
+        function updateConnectionStatus(text, bgClass) {
+            const statusBadge = document.getElementById('connection-status');
+            statusBadge.innerHTML = `
+                <span class="w-2 h-2 rounded-full ${bgClass} animate-pulse"></span>
+                ${text}
+            `;
+            statusBadge.className = `inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-gray-800 text-white`;
+        }
+
+        // ==========================================
+        // 8. 雲端自動模式邏輯 (Firebase SDK Core)
+        // ==========================================
+        function generateRoomCode() {
+            return Math.floor(100000 + Math.random() * 900000).toString();
+        }
+
+        async function createCloudRoom() {
+            if (!firebaseSupported) return;
+            isCaller = true;
+            
+            try {
+                currentRoomId = generateRoomCode();
+                document.getElementById('room-id-display').value = currentRoomId;
+                document.getElementById('room-info-box').classList.remove('hidden');
+                
+                await initializePeer(true);
+                updateConnectionStatus('建立房間中...', 'bg-indigo-500');
+
+                const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', currentRoomId);
+                
+                const callerCandidates = [];
+                peerConnection.onicecandidate = async (event) => {
+                    if (event.candidate) {
+                        const candObj = event.candidate.toJSON();
+                        callerCandidates.push(candObj);
+                        await setDoc(roomRef, { callerCandidates }, { merge: true });
+                    }
+                };
+
+                const offer = await peerConnection.createOffer();
+                await peerConnection.setLocalDescription(offer);
+
+                const roomWithOffer = {
+                    offer: {
+                        type: offer.type,
+                        sdp: offer.sdp
+                    },
+                    createdAt: Date.now()
+                };
+
+                await setDoc(roomRef, roomWithOffer);
+                showToast(`已於雲端中繼站開設房間：${currentRoomId}`, 'success');
+
+                onSnapshot(roomRef, async (snapshot) => {
+                    const data = snapshot.data();
+                    if (!data) return;
+
+                    if (!peerConnection.currentRemoteDescription && data.answer) {
+                        const answerDesc = new RTCSessionDescription(data.answer);
+                        await peerConnection.setRemoteDescription(answerDesc);
+                        showToast('已偵測到接收端加入，成功綁定應答 (Answer)！', 'success');
+                    }
+
+                    if (data.calleeCandidates) {
+                        for (const cand of data.calleeCandidates) {
+                            try {
+                                await peerConnection.addIceCandidate(new RTCIceCandidate(cand));
+                            } catch (e) {
+                                console.warn("載入對端 ICE Candidate 失敗:", e);
+                            }
+                        }
+                    }
+                }, (error) => {
+                    console.error("雲端監聽異常:", error);
+                });
+
+            } catch (err) {
+                console.error("建立房間出錯:", err);
+                showToast('建立雲端房間失敗，請再試一次。', 'error');
+            }
+        }
+
+        async function joinCloudRoom(roomId) {
+            if (!firebaseSupported) return;
+            if (!roomId) {
+                showToast('請輸入 6 位數房間碼！', 'error');
+                return;
+            }
+            isCaller = false;
+            currentRoomId = roomId;
+
+            try {
+                updateConnectionStatus('加入房間中...', 'bg-indigo-500');
+                
+                const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', currentRoomId);
+                const roomSnapshot = await getDoc(roomRef);
+
+                if (!roomSnapshot.exists()) {
+                    showToast('找不到該房間！請確認號碼是否正確或過期。', 'error');
+                    updateConnectionStatus('未連線', 'bg-gray-500');
+                    return;
+                }
+
+                const roomData = roomSnapshot.data();
+                if (!roomData.offer) {
+                    showToast('該房間目前不包含有效連線 Offer，請重新建立。', 'error');
+                    return;
+                }
+
+                await initializePeer(false);
+
+                const calleeCandidates = [];
+                peerConnection.onicecandidate = async (event) => {
+                    if (event.candidate) {
+                        const candObj = event.candidate.toJSON();
+                        calleeCandidates.push(candObj);
+                        await setDoc(roomRef, { calleeCandidates }, { merge: true });
+                    }
+                };
+
+                const offerDesc = new RTCSessionDescription(roomData.offer);
+                await peerConnection.setRemoteDescription(offerDesc);
+
+                const answer = await peerConnection.createAnswer();
+                await peerConnection.setLocalDescription(answer);
+
+                const answerPayload = {
+                    answer: {
+                        type: answer.type,
+                        sdp: answer.sdp
+                    }
+                };
+                await updateDoc(roomRef, answerPayload);
+                showToast('已完成應答簽署並回傳至雲端！', 'success');
+
+                onSnapshot(roomRef, async (snapshot) => {
+                    const data = snapshot.data();
+                    if (!data) return;
+
+                    if (data.callerCandidates) {
+                        for (const cand of data.callerCandidates) {
+                            try {
+                                await peerConnection.addIceCandidate(new RTCIceCandidate(cand));
+                            } catch (e) {
+                                console.warn("載入發起端 ICE 失敗:", e);
+                            }
+                        }
+                    }
+                }, (error) => {
+                    console.error("雲端監聽異常:", error);
+                });
+
+            } catch (err) {
+                console.error("加入房間出錯:", err);
+                showToast('無法成功連上此房間，請重新再試。', 'error');
+            }
+        }
+
+        // ==========================================
+        // 9. 手動 (去中心化 SDP 拷貝) 模式邏輯
+        // ==========================================
+        let manualIceList = [];
+
+        async function createManualOffer() {
+            try {
+                isCaller = true;
+                await initializePeer(true);
+                
+                manualIceList = [];
+                
+                peerConnection.onicecandidate = (event) => {
+                    if (event.candidate) {
+                        manualIceList.push(event.candidate);
+                        updateManualLocalSDPArea();
+                    }
+                };
+
+                const offer = await peerConnection.createOffer();
+                await peerConnection.setLocalDescription(offer);
+                updateManualLocalSDPArea();
+                showToast('Offer 憑證生成成功！請複製本地端憑證並發送給對方。', 'success');
+            } catch (err) {
+                showToast('生成 Offer 失敗，請重試。', 'error');
+            }
+        }
+
+        async function createManualAnswer() {
+            const rawRemoteSDP = document.getElementById('manual-remote-sdp').value.trim();
+            if (!rawRemoteSDP) {
+                showToast('請先貼上對方的 SDP 憑證在「遠端憑證」欄位中！', 'error');
+                return;
+            }
+
+            try {
+                isCaller = false;
+                await initializePeer(false);
+
+                const parsedPacket = JSON.parse(rawRemoteSDP);
+                if (!parsedPacket.sdp) {
+                    throw new Error("格式錯誤：缺乏 sdp 屬性");
+                }
+
+                manualIceList = [];
+                peerConnection.onicecandidate = (event) => {
+                    if (event.candidate) {
+                        manualIceList.push(event.candidate);
+                        updateManualLocalSDPArea();
+                    }
+                };
+
+                await peerConnection.setRemoteDescription(new RTCSessionDescription(parsedPacket.sdp));
+                const answer = await peerConnection.createAnswer();
+                await peerConnection.setLocalDescription(answer);
+
+                if (parsedPacket.candidates && Array.isArray(parsedPacket.candidates)) {
+                    parsedPacket.candidates.forEach(cand => {
+                        peerConnection.addIceCandidate(new RTCIceCandidate(cand)).catch(e => {});
+                    });
+                }
+
+                updateManualLocalSDPArea();
+                showToast('Answer 生成完成！請將生成的本地端憑證傳送回發起端。', 'success');
+            } catch (err) {
+                console.error(err);
+                showToast('解析對方 Offer SDP 失敗，請檢查格式是否完整。', 'error');
+            }
+        }
+
+        async function applyManualRemoteSDP() {
+            const rawRemoteSDP = document.getElementById('manual-remote-sdp').value.trim();
+            if (!rawRemoteSDP) {
+                showToast('請先將對方傳回來的 Answer 憑證貼上！', 'error');
+                return;
+            }
+
+            try {
+                const parsedPacket = JSON.parse(rawRemoteSDP);
+                await peerConnection.setRemoteDescription(new RTCSessionDescription(parsedPacket.sdp));
+
+                if (parsedPacket.candidates && Array.isArray(parsedPacket.candidates)) {
+                    parsedPacket.candidates.forEach(cand => {
+                        peerConnection.addIceCandidate(new RTCIceCandidate(cand)).catch(e => {});
+                    });
+                }
+                showToast('遠端協定已綁定！正在建構直連通道...', 'success');
+            } catch (err) {
+                showToast('套用 Answer 失敗，請確認協定封包是否完整。', 'error');
+            }
+        }
+
+        function updateManualLocalSDPArea() {
+            if (!peerConnection || !peerConnection.localDescription) return;
+            const sdpData = {
+                sdp: {
+                    type: peerConnection.localDescription.type,
+                    sdp: peerConnection.localDescription.sdp
+                },
+                candidates: manualIceList
+            };
+            document.getElementById('manual-local-sdp').value = JSON.stringify(sdpData);
+        }
+
+        // ==========================================
+        // 10. 多媒體控制邏輯
+        // ==========================================
+        function toggleMic() {
+            if (!localStream) return;
+            isMuted = !isMuted;
+            localStream.getAudioTracks().forEach(track => {
+                track.enabled = !isMuted;
+            });
+            
+            const micBtn = document.getElementById('btn-toggle-mic');
+            if (isMuted) {
+                micBtn.className = 'ctrl-btn bg-red-600 hover:bg-red-700 text-white p-3 sm:p-4 rounded-xl transition-all duration-200';
+                micBtn.innerHTML = '<i data-lucide="mic-off" class="w-5 h-5 sm:w-6 sm:h-6"></i>';
+                showToast('麥克風已靜音', 'info');
+            } else {
+                micBtn.className = 'ctrl-btn bg-gray-800 hover:bg-gray-700 text-gray-200 p-3 sm:p-4 rounded-xl transition-all duration-200';
+                micBtn.innerHTML = '<i data-lucide="mic" class="w-5 h-5 sm:w-6 sm:h-6"></i>';
+                showToast('麥克風已開啟', 'success');
+            }
+            lucide.createIcons();
+        }
+
+        function toggleVideo() {
+            if (!localStream) return;
+            isVideoOff = !isVideoOff;
+            localStream.getVideoTracks().forEach(track => {
+                track.enabled = !isVideoOff;
+            });
+
+            const videoBtn = document.getElementById('btn-toggle-video');
+            if (isVideoOff) {
+                videoBtn.className = 'ctrl-btn bg-red-600 hover:bg-red-700 text-white p-3 sm:p-4 rounded-xl transition-all duration-200';
+                videoBtn.innerHTML = '<i data-lucide="video-off" class="w-5 h-5 sm:w-6 sm:h-6"></i>';
+                document.getElementById('local-placeholder').classList.remove('hidden');
+                showToast('視訊鏡頭已暫停', 'info');
+            } else {
+                videoBtn.className = 'ctrl-btn bg-gray-800 hover:bg-gray-700 text-gray-200 p-3 sm:p-4 rounded-xl transition-all duration-200';
+                videoBtn.innerHTML = '<i data-lucide="video" class="w-5 h-5 sm:w-6 sm:h-6"></i>';
+                document.getElementById('local-placeholder').classList.add('hidden');
+                showToast('視訊鏡頭已開啟', 'success');
+            }
+            lucide.createIcons();
+        }
+
+        async function toggleScreenShare() {
+            if (!peerConnection) {
+                showToast('請先成功建立 P2P 房間通話，才能啟用分享畫面！', 'error');
+                return;
+            }
+
+            if (screenSharingTrack) {
+                stopScreenShare();
+                return;
+            }
+
+            try {
+                showToast('正在向系統獲取螢幕擷取來源...', 'info');
+                const mediaDevices = navigator.mediaDevices;
+                const screenStream = await mediaDevices.getDisplayMedia({ video: true });
+                const screenTrack = screenStream.getVideoTracks()[0];
+                
+                screenSharingTrack = screenTrack;
+
+                const videoSender = peerConnection.getSenders().find(s => s.track && s.track.kind === 'video');
+                if (videoSender) {
+                    videoSender.replaceTrack(screenTrack);
+                }
+
+                document.getElementById('local-video').srcObject = screenStream;
+
+                screenTrack.onended = () => {
+                    stopScreenShare();
+                };
+
+                const shareBtn = document.getElementById('btn-share-screen');
+                shareBtn.className = 'ctrl-btn bg-green-600 hover:bg-green-700 text-white p-3 sm:p-4 rounded-xl transition-all duration-200';
+                showToast('已開啟螢幕分享畫面', 'success');
+
+            } catch (err) {
+                console.error("螢幕共享失敗:", err);
+                showToast('取消了螢幕共享，或當前瀏覽器不支援。', 'error');
+            }
+        }
+
+        function stopScreenShare() {
+            if (!screenSharingTrack) return;
+            screenSharingTrack.stop();
+            screenSharingTrack = null;
+
+            const cameraTrack = localStream.getVideoTracks()[0];
+            const videoSender = peerConnection.getSenders().find(s => s.track && s.track.kind === 'video');
+            if (videoSender && cameraTrack) {
+                videoSender.replaceTrack(cameraTrack);
+            }
+
+            document.getElementById('local-video').srcObject = localStream;
+            
+            const shareBtn = document.getElementById('btn-share-screen');
+            shareBtn.className = 'ctrl-btn bg-gray-800 hover:bg-gray-700 text-gray-200 p-3 sm:p-4 rounded-xl transition-all duration-200';
+            showToast('螢幕共享已結束，恢復視訊鏡頭畫面。', 'info');
+        }
+
+        function hangUp() {
+            showToast('正在終止與清空通話狀態...', 'info');
+            
+            if (peerConnection) {
+                peerConnection.close();
+                peerConnection = null;
+            }
+
+            if (dataChannel) {
+                dataChannel.close();
+                dataChannel = null;
+            }
+
+            if (screenSharingTrack) {
+                screenSharingTrack.stop();
+                screenSharingTrack = null;
+            }
+
+            if (localStream) {
+                localStream.getTracks().forEach(track => track.stop());
+                localStream = null;
+            }
+
+            if (audioCtx) {
+                audioCtx.close();
+                audioCtx = null;
+                cancelAnimationFrame(visualizerAnimation);
+            }
+
+            // 重置 UI
+            document.getElementById('local-video').srcObject = null;
+            document.getElementById('remote-video').srcObject = null;
+            document.getElementById('local-placeholder').classList.remove('hidden');
+            document.getElementById('remote-placeholder').classList.remove('hidden');
+            document.getElementById('room-info-box').classList.add('hidden');
+            document.getElementById('room-id-display').value = "------";
+            document.getElementById('room-id-input').value = "";
+            document.getElementById('manual-local-sdp').value = "";
+            document.getElementById('manual-remote-sdp').value = "";
+            
+            document.getElementById('chat-badge').innerText = '離線';
+            document.getElementById('chat-badge').className = 'px-2 py-0.5 rounded-full bg-gray-800 text-gray-400 text-[10px]';
+            document.getElementById('chat-input').disabled = true;
+            document.getElementById('chat-input').value = "";
+            document.getElementById('btn-send-message').disabled = true;
+            document.getElementById('chat-messages').innerHTML = `
+                <div class="text-center text-xs text-gray-500 italic py-4">
+                    尚未建立連線通道。連線建立後，即可開啟超低延遲點對點加密聊天。
+                </div>
+            `;
+
+            updateConnectionStatus('未連線', 'bg-gray-500');
+            showToast('通話已斷開，設備已成功釋放！', 'success');
+            
+            // 關閉手機側邊欄
+            closeSidebar();
+        }
+
+        // ==========================================
+        // 11. 文字聊天室邏輯 (P2P Data Channel)
+        // ==========================================
+        function sendChatMessage(e) {
+            e.preventDefault();
+            const input = document.getElementById('chat-input');
+            const text = input.value.trim();
+            if (!text) return;
+
+            if (dataChannel && dataChannel.readyState === 'open') {
+                dataChannel.send(text);
+                addChatMessage('You', text, true);
+                input.value = '';
+            } else {
+                showToast('數據通道未開通或已斷線，無法傳送訊息。', 'error');
+            }
+        }
+
+        function receiveMessage(message) {
+            addChatMessage('遠端使用者', message, false);
+        }
+
+        function addChatMessage(sender, text, isSelf) {
+            const container = document.getElementById('chat-messages');
+            
+            if (container.querySelector('.italic')) {
+                container.innerHTML = '';
+            }
+
+            const wrapper = document.createElement('div');
+            wrapper.className = `flex flex-col ${isSelf ? 'items-end' : 'items-start'} animate-fade-in`;
+
+            const alignmentClass = isSelf ? 'bg-indigo-600 text-white rounded-br-none' : 'bg-gray-800 text-gray-200 rounded-bl-none';
+            
+            wrapper.innerHTML = `
+                <span class="text-[10px] text-gray-500 mb-0.5 px-1">${sender}</span>
+                <div class="px-3 py-2 rounded-xl text-xs max-w-[85%] break-words ${alignmentClass}">
+                    ${escapeHTML(text)}
+                </div>
+            `;
+            
+            container.appendChild(wrapper);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function addSystemChatMessage(text) {
+            const container = document.getElementById('chat-messages');
+            if (container.querySelector('.italic')) {
+                container.innerHTML = '';
+            }
+            const el = document.createElement('div');
+            el.className = 'text-center text-[11px] text-indigo-400/80 bg-indigo-950/20 border border-indigo-950/50 py-1 px-2 rounded-lg my-2';
+            el.innerText = text;
+            container.appendChild(el);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function escapeHTML(str) {
+            return str.replace(/[&<>'"]/g, 
+                tag => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[tag] || tag)
+            );
+        }
+
+        // ==========================================
+        // 12. UI 與介面切換監聽
+        // ==========================================
+        function switchTab(mode) {
+            const tabCloud = document.getElementById('tab-cloud');
+            const tabManual = document.getElementById('tab-manual');
+            const panelCloud = document.getElementById('panel-cloud');
+            const panelManual = document.getElementById('panel-manual');
+
+            if (mode === 'cloud') {
+                tabCloud.className = "py-1.5 sm:py-2 rounded-md font-medium bg-indigo-600 text-white transition-all";
+                tabManual.className = "py-1.5 sm:py-2 rounded-md font-medium text-gray-400 hover:text-white transition-all";
+                panelCloud.classList.remove('hidden');
+                panelManual.classList.add('hidden');
+            } else {
+                tabManual.className = "py-1.5 sm:py-2 rounded-md font-medium bg-indigo-600 text-white transition-all";
+                tabCloud.className = "py-1.5 sm:py-2 rounded-md font-medium text-gray-400 hover:text-white transition-all";
+                panelManual.classList.remove('hidden');
+                panelCloud.classList.add('hidden');
+            }
+        }
+
+        function copyToClipboard(elementId) {
+            const textElement = document.getElementById(elementId);
+            textElement.select();
+            textElement.setSelectionRange(0, 99999);
+            
+            try {
+                document.execCommand('copy');
+                showToast('已複製到您的剪貼簿！', 'success');
+            } catch (err) {
+                showToast('自動複製失敗，請手動選取複製。', 'error');
+            }
+        }
+
+        document.getElementById('tab-cloud').addEventListener('click', () => switchTab('cloud'));
+        document.getElementById('tab-manual').addEventListener('click', () => switchTab('manual'));
+        
+        document.getElementById('btn-create-room').addEventListener('click', createCloudRoom);
+        document.getElementById('btn-join-room').addEventListener('click', () => {
+            const code = document.getElementById('room-id-input').value.trim();
+            joinCloudRoom(code);
+        });
+
+        document.getElementById('btn-copy-room').addEventListener('click', () => copyToClipboard('room-id-display'));
+        document.getElementById('btn-copy-local-sdp').addEventListener('click', () => copyToClipboard('manual-local-sdp'));
+
+        document.getElementById('btn-manual-create').addEventListener('click', createManualOffer);
+        document.getElementById('btn-manual-answer').addEventListener('click', createManualAnswer);
+        document.getElementById('btn-apply-remote-sdp').addEventListener('click', applyManualRemoteSDP);
+
+        document.getElementById('btn-toggle-mic').addEventListener('click', toggleMic);
+        document.getElementById('btn-toggle-video').addEventListener('click', toggleVideo);
+        document.getElementById('btn-share-screen').addEventListener('click', toggleScreenShare);
+        document.getElementById('btn-hangup').addEventListener('click', hangUp);
+
+        document.getElementById('chat-form').addEventListener('submit', sendChatMessage);
+
+        // ==========================================
+        // 13. 進階參數 Modals 邏輯
+        // ==========================================
+        const modal = document.getElementById('modal-settings');
+        document.getElementById('btn-settings').addEventListener('click', () => {
+            modal.classList.remove('hidden');
+        });
+        document.getElementById('btn-close-settings').addEventListener('click', () => {
+            modal.classList.add('hidden');
+        });
+        document.getElementById('btn-save-settings').addEventListener('click', () => {
+            try {
+                const updatedList = JSON.parse(document.getElementById('settings-ice-servers').value);
+                iceConfiguration = { iceServers: updatedList };
+                showToast('成功儲存並套用新的 ICE 節點配置！', 'success');
+                modal.classList.add('hidden');
+            } catch (err) {
+                showToast('格式錯誤，必須是合法的 JSON 陣列！', 'error');
+            }
+        });
+
+        window.addEventListener('load', () => {
+            getLocalMedia().catch(() => {});
+        });
+    </script>
+</body>
+</html>
