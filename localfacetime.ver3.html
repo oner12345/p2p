@@ -1,0 +1,1009 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>FaceTime Web - P2P Serverless Connect</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Google Fonts for Apple iOS Style -->
+  <link href="https://fonts.googleapis.com/css2?family=SF+Pro+Display:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- PeerJS WebRTC API (僅用於雲端自動模式) -->
+  <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['SF Pro Display', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'Helvetica', 'Arial', 'sans-serif'],
+          },
+          colors: {
+            appleGreen: '#30D158',
+            appleRed: '#FF453A',
+            appleDark: '#1C1C1E',
+            appleGray: '#2C2C2E',
+            appleLightGray: '#3A3A3C',
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body {
+      background-color: #000000;
+      color: #ffffff;
+      -webkit-tap-highlight-color: transparent;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      height: 100vh;
+      width: 100vw;
+    }
+    .blur-bg {
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+    }
+    ::-webkit-scrollbar {
+      display: none;
+    }
+    .mirror-view {
+      transform: scaleX(-1);
+    }
+  </style>
+</head>
+<body class="h-screen w-screen overflow-hidden flex flex-col justify-between font-sans selection:bg-appleGreen selection:text-black">
+
+  <!-- 狀態列提示與 Toast 訊息容器 -->
+  <div id="toast-container" class="fixed top-4 left-1/2 -translate-x-1/2 z-50 w-11/12 max-w-sm pointer-events-none"></div>
+
+  <!-- 背景影片區 (通話中顯示) -->
+  <div class="absolute inset-0 z-0 bg-black">
+    <video id="remote-video" class="w-full h-full object-cover" autoplay playsinline></video>
+    <div id="video-placeholder" class="absolute inset-0 flex flex-col items-center justify-center bg-zinc-950 text-zinc-500 transition-opacity duration-500">
+      <i data-lucide="video-off" class="w-16 h-16 mb-4 stroke-1"></i>
+      <span class="text-sm font-medium">等待影片串流...</span>
+    </div>
+  </div>
+
+  <!-- 浮動本地影片預覽 (通話中子畫面) -->
+  <div id="local-video-container" class="absolute top-16 right-4 w-28 h-40 md:w-40 md:h-56 rounded-2xl overflow-hidden shadow-2xl border border-zinc-800 z-30 transition-all duration-300 hidden cursor-pointer">
+    <video id="local-video" class="w-full h-full object-cover mirror-view" autoplay playsinline muted></video>
+  </div>
+
+  <!-- ================= 主介面控制面版 ================= -->
+  <div id="setup-panel" class="absolute inset-0 z-40 flex flex-col justify-between p-6 bg-black/80 blur-bg transition-all duration-500 overflow-y-auto">
+    
+    <!-- 頂部標題列 -->
+    <div class="flex items-center justify-between pt-4 flex-shrink-0">
+      <div class="flex items-center space-x-2">
+        <div class="w-9 h-9 rounded-xl bg-appleGreen flex items-center justify-center shadow-lg shadow-appleGreen/30">
+          <i data-lucide="video" class="w-5 h-5 text-black stroke-[2.5]"></i>
+        </div>
+        <span class="font-semibold text-lg tracking-tight">FaceTime <span class="text-xs bg-appleGreen/20 text-appleGreen px-2 py-0.5 rounded-full ml-1 font-bold">局域網版</span></span>
+      </div>
+      <div class="text-xs text-zinc-500 flex items-center space-x-1">
+        <span class="w-2 h-2 rounded-full bg-appleGreen inline-block"></span>
+        <span>完全離線傳輸模式</span>
+      </div>
+    </div>
+
+    <!-- 中間控制核心 -->
+    <div class="my-auto w-full max-w-md mx-auto space-y-6 py-6">
+      
+      <!-- 模式切換 Tabs -->
+      <div class="bg-appleGray p-1 rounded-xl flex">
+        <button id="tab-lan" onclick="switchTab('lan')" class="flex-1 py-2 text-sm font-semibold rounded-lg text-white bg-appleLightGray shadow transition-all duration-200">
+          局域網離線連線
+        </button>
+        <button id="tab-cloud" onclick="switchTab('cloud')" class="flex-1 py-2 text-sm font-semibold rounded-lg text-zinc-400 transition-all duration-200">
+          雲端自動連線
+        </button>
+      </div>
+
+      <!-- 1. 局域網手動連線面板 (完全離線) -->
+      <div id="panel-lan" class="space-y-4">
+        <div class="bg-appleGray rounded-2xl p-4 border border-zinc-800/50 space-y-4">
+          <div class="text-xs text-zinc-400 leading-relaxed">
+            <strong class="text-appleGreen">離線運作說明：</strong>雙方連接同一個 Wi-Fi 網絡，直接複製並交換下方生成的代碼。**配對成功前不會遮擋螢幕，請放心操作。**
+          </div>
+          
+          <!-- 選項：發起端 or 接收端 -->
+          <div id="lan-role-selector" class="grid grid-cols-2 gap-2">
+            <button id="btn-role-caller" onclick="selectLanRole('caller')" class="py-2.5 bg-appleLightGray hover:bg-zinc-700 rounded-xl text-sm font-semibold text-white transition">我是發起方</button>
+            <button id="btn-role-receiver" onclick="selectLanRole('receiver')" class="py-2.5 bg-appleLightGray hover:bg-zinc-700 rounded-xl text-sm font-semibold text-white transition">我是接聽方</button>
+          </div>
+
+          <!-- 發起方工作流程 -->
+          <div id="lan-caller-flow" class="hidden space-y-4 pt-2 border-t border-zinc-800">
+            <div class="space-y-2">
+              <label class="text-xs text-zinc-400 block font-medium">步驟 1：生成您的呼叫代碼並傳給對方</label>
+              <button onclick="generateLanOffer()" class="w-full py-2.5 bg-appleGreen text-black font-semibold rounded-xl text-sm transition hover:bg-green-400">
+                1. 啟用鏡頭並生成代碼
+              </button>
+              <div id="caller-offer-container" class="hidden space-y-2">
+                <textarea id="caller-offer-code" readonly class="w-full h-20 bg-black text-xs text-appleGreen font-mono p-2 rounded-lg border border-zinc-800 resize-none focus:outline-none" onclick="this.select()"></textarea>
+                <button onclick="copyCode('caller-offer-code')" class="w-full py-1.5 bg-zinc-800 text-xs text-zinc-300 rounded-lg hover:bg-zinc-700 transition">
+                  複製呼叫代碼
+                </button>
+              </div>
+            </div>
+
+            <div id="caller-step-2" class="hidden space-y-2 pt-2 border-t border-zinc-800/50">
+              <div class="flex items-center justify-between">
+                <label class="text-xs text-zinc-400 block font-medium">步驟 2：貼上對方的「接聽代碼」</label>
+                <span class="text-[10px] text-appleGreen animate-pulse">正在等待接聽方...</span>
+              </div>
+              <textarea id="caller-answer-code" placeholder="請在此貼上接聽方傳回的接聽代碼" class="w-full h-20 bg-black text-xs text-white font-mono p-2 rounded-lg border border-zinc-800 focus:outline-none focus:border-appleGreen resize-none"></textarea>
+              <button onclick="connectLanCaller()" class="w-full py-2.5 bg-appleGreen text-black font-semibold rounded-xl text-sm transition hover:bg-green-400 flex items-center justify-center space-x-1">
+                <i data-lucide="phone-call" class="w-4 h-4"></i>
+                <span>確認建立連線</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- 接聽方工作流程 -->
+          <div id="lan-receiver-flow" class="hidden space-y-4 pt-2 border-t border-zinc-800">
+            <div class="space-y-2">
+              <label class="text-xs text-zinc-400 block font-medium">步驟 1：貼上對方的「呼叫代碼」</label>
+              <textarea id="receiver-offer-code" placeholder="請在此貼上發起方生成的呼叫代碼" class="w-full h-20 bg-black text-xs text-white font-mono p-2 rounded-lg border border-zinc-800 focus:outline-none focus:border-appleGreen resize-none"></textarea>
+            </div>
+
+            <div class="space-y-2 pt-2 border-t border-zinc-800/50">
+              <label class="text-xs text-zinc-400 block font-medium">步驟 2：啟用相機並生成接聽代碼</label>
+              <button onclick="answerLanCall()" class="w-full py-2.5 bg-appleGreen text-black font-semibold rounded-xl text-sm transition hover:bg-green-400">
+                2. 啟用並生成接聽代碼
+              </button>
+              <div id="receiver-answer-container" class="hidden space-y-2">
+                <textarea id="receiver-answer-code" readonly class="w-full h-20 bg-black text-xs text-appleGreen font-mono p-2 rounded-lg border border-zinc-800 resize-none focus:outline-none" onclick="this.select()"></textarea>
+                <button onclick="copyCode('receiver-answer-code')" class="w-full py-1.5 bg-zinc-800 text-xs text-zinc-300 rounded-lg hover:bg-zinc-700 transition">
+                  複製接聽代碼並傳給發起方
+                </button>
+                <p class="text-[10px] text-zinc-500 text-center animate-pulse pt-1">⏳ 請將代碼發送給發起方，發起方確認後通話將自動開啟</p>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- 2. 雲端自動連線面板 (需外網 PeerJS) -->
+      <div id="panel-cloud" class="hidden space-y-4">
+        <div class="bg-appleGray rounded-2xl p-4 border border-zinc-800/50 space-y-4">
+          <!-- 顯示本機連線 ID -->
+          <div class="flex items-center justify-between bg-black/50 p-3 rounded-xl border border-zinc-800">
+            <div>
+              <p class="text-xs text-zinc-500 font-medium">您的 FaceTime 號碼</p>
+              <p id="my-peer-id" class="text-lg font-semibold tracking-wider text-appleGreen">取得中...</p>
+            </div>
+            <button onclick="copyPeerId()" class="w-8 h-8 bg-appleLightGray hover:bg-zinc-700 rounded-lg flex items-center justify-center transition">
+              <i data-lucide="copy" class="w-4 h-4 text-zinc-300"></i>
+            </button>
+          </div>
+
+          <!-- 輸入目標 ID 發起呼叫 -->
+          <div class="space-y-2">
+            <input id="target-peer-id" type="text" placeholder="請輸入對方的 FaceTime 號碼" class="w-full bg-black/50 border border-zinc-800 text-white rounded-xl py-3 px-4 text-center text-base tracking-wider placeholder:text-zinc-600 focus:outline-none focus:border-appleGreen transition">
+            <button onclick="startCloudCall()" class="w-full bg-appleGreen hover:bg-green-400 text-black font-semibold py-3 px-4 rounded-xl flex items-center justify-center space-x-2 transition shadow-lg shadow-appleGreen/20">
+              <i data-lucide="video" class="w-5 h-5 text-black"></i>
+              <span>開始視訊通話</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- 底部版權/隱私說明 -->
+    <div class="text-center text-xs text-zinc-600 pb-2 flex-shrink-0">
+      由 WebRTC P2P 提供直連技術 • 視訊音訊數據不經過任何第三方伺服器
+    </div>
+  </div>
+
+  <!-- ================= 通話進行中：控制懸浮列 ================= -->
+  <div id="call-overlay" class="absolute inset-x-0 bottom-0 z-30 p-6 flex flex-col items-center space-y-4 pointer-events-none transition-all duration-500 translate-y-full">
+    
+    <!-- 通話計時器 -->
+    <div class="bg-black/60 blur-bg px-4 py-1.5 rounded-full border border-zinc-800 text-xs font-semibold tracking-wider text-zinc-300 pointer-events-auto flex items-center space-x-1.5 shadow-xl">
+      <span class="w-2 h-2 rounded-full bg-appleGreen animate-pulse"></span>
+      <span id="call-timer">00:00</span>
+    </div>
+
+    <!-- 控制按鈕列 -->
+    <div class="bg-zinc-900/90 blur-bg p-4 rounded-3xl border border-zinc-800 shadow-2xl flex items-center space-x-4 md:space-x-6 pointer-events-auto">
+      <!-- 靜音麥克風 -->
+      <button id="btn-toggle-mic" onclick="toggleMic()" class="w-12 h-12 md:w-14 md:h-14 bg-appleLightGray hover:bg-zinc-700 text-white rounded-full flex items-center justify-center transition">
+        <i data-lucide="mic" class="w-5 h-5 md:w-6 md:h-6"></i>
+      </button>
+
+      <!-- 關閉鏡頭 -->
+      <button id="btn-toggle-video" onclick="toggleVideo()" class="w-12 h-12 md:w-14 md:h-14 bg-appleLightGray hover:bg-zinc-700 text-white rounded-full flex items-center justify-center transition">
+        <i data-lucide="video" class="w-5 h-5 md:w-6 md:h-6"></i>
+      </button>
+
+      <!-- 切換相機 -->
+      <button id="btn-switch-camera" onclick="switchCamera()" class="w-12 h-12 md:w-14 md:h-14 bg-appleLightGray hover:bg-zinc-700 text-white rounded-full flex items-center justify-center transition">
+        <i data-lucide="switch-camera" class="w-5 h-5 md:w-6 md:h-6"></i>
+      </button>
+
+      <!-- 螢幕分享 (視乎設備支援度) -->
+      <button id="btn-share-screen" onclick="toggleScreenShare()" class="w-12 h-12 md:w-14 md:h-14 bg-appleLightGray hover:bg-zinc-700 text-white rounded-full flex items-center justify-center transition">
+        <i data-lucide="monitor" class="w-5 h-5 md:w-6 md:h-6"></i>
+      </button>
+
+      <!-- 掛斷電話 -->
+      <button onclick="endCall()" class="w-12 h-12 md:w-14 md:h-14 bg-appleRed hover:bg-red-500 text-white rounded-full flex items-center justify-center transition shadow-lg shadow-appleRed/30">
+        <i data-lucide="phone-off" class="w-5 h-5 md:w-6 md:h-6 fill-current"></i>
+      </button>
+    </div>
+  </div>
+
+  <!-- ================= 呼叫中 / 撥號中 覆蓋層 (僅用於雲端自動呼叫) ================= -->
+  <div id="calling-overlay" class="absolute inset-0 z-50 bg-appleDark flex flex-col justify-between p-8 transition-all duration-500 opacity-0 pointer-events-none">
+    <div class="flex flex-col items-center mt-20 space-y-4">
+      <div id="calling-avatar" class="w-24 h-24 rounded-full bg-appleGreen flex items-center justify-center shadow-2xl">
+        <i data-lucide="user" class="w-12 h-12 text-black"></i>
+      </div>
+      <h2 id="calling-name" class="text-2xl font-bold tracking-tight">FaceTime 呼叫中</h2>
+      <p id="calling-status" class="text-zinc-400 text-sm">正在等待對方接聽...</p>
+    </div>
+
+    <!-- 撥號掛斷按鈕 -->
+    <div class="flex justify-center pb-12">
+      <button onclick="endCall()" class="w-16 h-16 bg-appleRed hover:bg-red-500 text-white rounded-full flex items-center justify-center transition shadow-lg shadow-appleRed/30">
+        <i data-lucide="phone-off" class="w-7 h-7 fill-current"></i>
+      </button>
+    </div>
+  </div>
+
+  <!-- ================= 腳本與邏輯控制 ================= -->
+  <script>
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'p2p-facetime-offline';
+    
+    let peer = null;
+    let peerConnection = null;
+    let localStream = null;
+    let remoteStream = null;
+    let currentCall = null; 
+    let isCallConnected = false; // 標記通話是否已成功建立
+
+    let isMicMuted = false;
+    let isVideoStopped = false;
+    let isScreenSharing = false;
+    let currentFacingMode = "user"; 
+
+    let timerInterval = null;
+    let callSeconds = 0;
+
+    let audioCtx = null;
+    let ringInterval = null;
+
+    const rtcOfflineConfig = {
+      iceServers: [] 
+    };
+
+    function safeCreateIcons() {
+      try {
+        if (typeof lucide !== 'undefined' && lucide.createIcons) {
+          lucide.createIcons();
+        }
+      } catch (err) {
+        console.warn("Lucide 渲染失敗:", err);
+      }
+    }
+
+    function stopLocalStream() {
+      if (localStream) {
+        try {
+          localStream.getTracks().forEach(track => {
+            track.stop();
+          });
+        } catch (e) {
+          console.error("無法停止媒體軌道:", e);
+        }
+        localStream = null;
+      }
+    }
+
+    window.addEventListener('beforeunload', stopLocalStream);
+    window.addEventListener('pagehide', stopLocalStream);
+    window.addEventListener('unload', stopLocalStream);
+
+    document.addEventListener("DOMContentLoaded", () => {
+      safeCreateIcons();
+      startLocalPreview();
+    });
+
+    // ================= 1. UI 與通用函數 =================
+
+    function showToast(message) {
+      const container = document.getElementById('toast-container');
+      if (!container) return;
+      const toast = document.createElement('div');
+      toast.className = "bg-zinc-900/95 blur-bg text-white border border-zinc-800 text-xs px-4 py-3 rounded-xl shadow-xl mb-2 flex items-center justify-between transition-all duration-300 transform translate-y-[-10px] opacity-0 pointer-events-auto";
+      toast.innerHTML = `
+        <span class="font-medium">${message}</span>
+        <button onclick="this.parentElement.remove()" class="text-zinc-500 hover:text-white ml-2"><i data-lucide="x" class="w-3.5 h-3.5"></i></button>
+      `;
+      container.appendChild(toast);
+      safeCreateIcons();
+
+      setTimeout(() => {
+        toast.classList.remove('opacity-0', 'translate-y-[-10px]');
+        toast.classList.add('opacity-100', 'translate-y-0');
+      }, 50);
+
+      setTimeout(() => {
+        toast.classList.add('opacity-0', 'translate-y-[-10px]');
+        setTimeout(() => toast.remove(), 300);
+      }, 4000);
+    }
+
+    function switchTab(mode) {
+      const tabLan = document.getElementById('tab-lan');
+      const tabCloud = document.getElementById('tab-cloud');
+      const panelLan = document.getElementById('panel-lan');
+      const panelCloud = document.getElementById('panel-cloud');
+
+      if (mode === 'lan') {
+        tabLan.className = "flex-1 py-2 text-sm font-semibold rounded-lg text-white bg-appleLightGray shadow transition-all duration-200";
+        tabCloud.className = "flex-1 py-2 text-sm font-semibold rounded-lg text-zinc-400 transition-all duration-200";
+        panelLan.classList.remove('hidden');
+        panelCloud.classList.add('hidden');
+      } else {
+        tabCloud.className = "flex-1 py-2 text-sm font-semibold rounded-lg text-white bg-appleLightGray shadow transition-all duration-200";
+        tabLan.className = "flex-1 py-2 text-sm font-semibold rounded-lg text-zinc-400 transition-all duration-200";
+        panelCloud.classList.remove('hidden');
+        panelLan.classList.add('hidden');
+        
+        if (!peer) {
+          initPeerJS();
+        }
+      }
+    }
+
+    function selectLanRole(role) {
+      const callerFlow = document.getElementById('lan-caller-flow');
+      const receiverFlow = document.getElementById('lan-receiver-flow');
+      
+      const btnCaller = document.getElementById('btn-role-caller');
+      const btnReceiver = document.getElementById('btn-role-receiver');
+
+      if (role === 'caller') {
+        callerFlow.classList.remove('hidden');
+        receiverFlow.classList.add('hidden');
+        btnCaller.classList.add('bg-appleGreen', 'text-black');
+        btnCaller.classList.remove('bg-appleLightGray', 'text-white');
+        btnReceiver.classList.remove('bg-appleGreen', 'text-black');
+        btnReceiver.classList.add('bg-appleLightGray', 'text-white');
+        showToast("已選擇：發起方。");
+      } else {
+        receiverFlow.classList.remove('hidden');
+        callerFlow.classList.add('hidden');
+        btnReceiver.classList.add('bg-appleGreen', 'text-black');
+        btnReceiver.classList.remove('bg-appleLightGray', 'text-white');
+        btnCaller.classList.remove('bg-appleGreen', 'text-black');
+        btnCaller.classList.add('bg-appleLightGray', 'text-white');
+        showToast("已選擇：接聽方。");
+      }
+    }
+
+    function copyCode(elementId) {
+      const copyText = document.getElementById(elementId);
+      copyText.select();
+      copyText.setSelectionRange(0, 99999);
+      try {
+        document.execCommand("copy");
+        showToast("代碼已複製到剪貼簿！");
+      } catch (err) {
+        showToast("複製失敗，請手動複製。");
+      }
+    }
+
+    async function startLocalPreview() {
+      stopLocalStream();
+      try {
+        localStream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: currentFacingMode },
+          audio: true
+        });
+        document.getElementById('local-video').srcObject = localStream;
+        document.getElementById('local-video-container').classList.remove('hidden');
+      } catch (err) {
+        showToast("無法獲取相機/麥克風：" + err.message);
+      }
+    }
+
+    // ================= 2. 離線 WebRTC 核心邏輯 =================
+
+    function sdpEncode(sessionDescription) {
+      const jsonStr = JSON.stringify({
+        type: sessionDescription.type,
+        sdp: sessionDescription.sdp
+      });
+      return btoa(encodeURIComponent(jsonStr));
+    }
+
+    function sdpDecode(base64Str) {
+      try {
+        const jsonStr = decodeURIComponent(atob(base64Str.trim()));
+        return JSON.parse(jsonStr);
+      } catch (err) {
+        showToast("代碼解析出錯，請確認複製內容是否完整。");
+        return null;
+      }
+    }
+
+    // 初始化局域網 WebRTC Peer Connection 監聽器
+    function initLanPeerConnection() {
+      if (peerConnection) {
+        try { peerConnection.close(); } catch(e){}
+      }
+      peerConnection = new RTCPeerConnection(rtcOfflineConfig);
+
+      // 當連線狀態改變時觸發
+      peerConnection.onconnectionstatechange = () => {
+        const state = peerConnection.connectionState;
+        console.log("WebRTC 連線狀態變更:", state);
+        if (state === 'connected') {
+          isCallConnected = true;
+          stopRingtoneEffect();
+          transitionToCallActive();
+          showToast("局域網 P2P 直連成功！");
+        } else if (state === 'failed' || state === 'closed') {
+          // 只有在已經連線通話中斷線，才自動結束通話；配對中失敗不予重置
+          if (isCallConnected) {
+            stopRingtoneEffect();
+            endCall();
+          }
+        }
+      };
+
+      peerConnection.oniceconnectionstatechange = () => {
+        const state = peerConnection.iceConnectionState;
+        console.log("ICE 狀態變更:", state);
+        if (state === 'connected' || state === 'completed') {
+          isCallConnected = true;
+          stopRingtoneEffect();
+          transitionToCallActive();
+        }
+      };
+
+      // 接收遠端視訊軌道
+      peerConnection.ontrack = (event) => {
+        if (event.streams && event.streams[0]) {
+          handleRemoteStream(event.streams[0]);
+        }
+      };
+
+      // 載入本地視訊
+      if (localStream) {
+        localStream.getTracks().forEach(track => {
+          peerConnection.addTrack(track, localStream);
+        });
+      }
+    }
+
+    // 局域網：發起方生成呼叫代碼 (Offer)
+    async function generateLanOffer() {
+      try {
+        if (!localStream) {
+          await startLocalPreview();
+        }
+        
+        initLanPeerConnection();
+
+        // 必須建立 Data Channel 觸發 ICE Candidate 收集
+        peerConnection.createDataChannel("lan-signaling");
+
+        const offer = await peerConnection.createOffer();
+        await peerConnection.setLocalDescription(offer);
+
+        showToast("正在分析本地局域網端點...");
+
+        // 等待 ICE 收集結束
+        await new Promise((resolve) => {
+          if (peerConnection.iceGatheringState === 'complete') {
+            resolve();
+          } else {
+            const checkState = () => {
+              if (peerConnection.iceGatheringState === 'complete') {
+                peerConnection.removeEventListener('icegatheringstatechange', checkState);
+                resolve();
+              }
+            };
+            peerConnection.addEventListener('icegatheringstatechange', checkState);
+            setTimeout(resolve, 3500); // 3.5秒超時防卡死
+          }
+        });
+
+        const encodedOffer = sdpEncode(peerConnection.localDescription);
+        document.getElementById('caller-offer-code').value = encodedOffer;
+        document.getElementById('caller-offer-container').classList.remove('hidden');
+        document.getElementById('caller-step-2').classList.remove('hidden');
+        
+        showToast("呼叫代碼生成成功！");
+        playRingtoneEffect(); // 背景播放撥號音，完全不顯示任何全螢幕遮罩
+      } catch (err) {
+        showToast("生成代碼失敗: " + err.message);
+      }
+    }
+
+    // 局域網：接聽方生成接聽代碼 (Answer)
+    async function answerLanCall() {
+      const offerCode = document.getElementById('receiver-offer-code').value.trim();
+      if (!offerCode) {
+        showToast("請貼上對方的呼叫代碼。");
+        return;
+      }
+
+      const sdpData = sdpDecode(offerCode);
+      if (!sdpData || sdpData.type !== 'offer') {
+        showToast("無效的呼叫代碼。");
+        return;
+      }
+
+      try {
+        if (!localStream) {
+          await startLocalPreview();
+        }
+
+        initLanPeerConnection();
+
+        // 設定遠端呼叫代碼
+        await peerConnection.setRemoteDescription(new RTCSessionDescription(sdpData));
+
+        const answer = await peerConnection.createAnswer();
+        await peerConnection.setLocalDescription(answer);
+
+        showToast("正在建立對接通道端點...");
+
+        // 等待 ICE 收集
+        await new Promise((resolve) => {
+          if (peerConnection.iceGatheringState === 'complete') {
+            resolve();
+          } else {
+            const checkState = () => {
+              if (peerConnection.iceGatheringState === 'complete') {
+                peerConnection.removeEventListener('icegatheringstatechange', checkState);
+                resolve();
+              }
+            };
+            peerConnection.addEventListener('icegatheringstatechange', checkState);
+            setTimeout(resolve, 3500);
+          }
+        });
+
+        const encodedAnswer = sdpEncode(peerConnection.localDescription);
+        
+        // 渲染接聽代碼
+        document.getElementById('receiver-answer-code').value = encodedAnswer;
+        document.getElementById('receiver-answer-container').classList.remove('hidden');
+        
+        showToast("接聽代碼生成成功！請傳回給發起方。");
+      } catch (err) {
+        showToast("建立接聽代碼失敗: " + err.message);
+      }
+    }
+
+    // 局域網：發起方寫入接聽代碼建立連線
+    async function connectLanCaller() {
+      const answerCode = document.getElementById('caller-answer-code').value.trim();
+      if (!answerCode) {
+        showToast("請填寫對方的接聽代碼。");
+        return;
+      }
+
+      const sdpData = sdpDecode(answerCode);
+      if (!sdpData || sdpData.type !== 'answer') {
+        showToast("無效的接聽代碼。");
+        return;
+      }
+
+      try {
+        await peerConnection.setRemoteDescription(new RTCSessionDescription(sdpData));
+        showToast("發起 P2P 交握對接中...");
+      } catch (err) {
+        showToast("連線對接失敗: " + err.message);
+      }
+    }
+
+    // ================= 3. 雲端 PeerJS 自動模式邏輯 =================
+
+    function initPeerJS() {
+      if (peer) return;
+
+      peer = new Peer({
+        debug: 1,
+        config: {
+          iceServers: [
+            { urls: 'stun:stun.l.google.com:19302' }
+          ]
+        }
+      });
+
+      peer.on('open', (id) => {
+        document.getElementById('my-peer-id').innerText = id;
+        showToast("雲端服務連線成功！");
+      });
+
+      peer.on('error', (err) => {
+        console.error(err);
+        showToast("雲端連線失敗，請改用局域網模式。");
+      });
+
+      peer.on('call', async (incomingCall) => {
+        currentCall = incomingCall;
+        
+        // 雲端模式為自動交換信令，不需手動複製，因此可以顯示撥號遮罩
+        showCallingUI("FaceTime 來電", "等待接聽中...", false);
+        playRingtoneEffect();
+
+        const overlay = document.getElementById('calling-overlay');
+        overlay.querySelector('button').onclick = () => {
+          stopRingtoneEffect();
+          endCall();
+        };
+
+        if (!localStream) {
+          await startLocalPreview();
+        }
+        
+        incomingCall.answer(localStream);
+        
+        incomingCall.on('stream', (remoteMediaStream) => {
+          stopRingtoneEffect();
+          handleRemoteStream(remoteMediaStream);
+          transitionToCallActive();
+        });
+      });
+    }
+
+    function copyPeerId() {
+      const idText = document.getElementById('my-peer-id').innerText;
+      if (idText === "取得中...") return;
+      navigator.clipboard.writeText(idText).then(() => {
+        showToast("已複製 ID！");
+      }).catch(() => {
+        const el = document.createElement('textarea');
+        el.value = idText;
+        document.body.appendChild(el);
+        el.select();
+        document.execCommand('copy');
+        document.body.removeChild(el);
+        showToast("已複製 ID！");
+      });
+    }
+
+    async function startCloudCall() {
+      const targetId = document.getElementById('target-peer-id').value.trim();
+      if (!targetId) {
+        showToast("請輸入對方的 ID。");
+        return;
+      }
+
+      if (!localStream) {
+        await startLocalPreview();
+      }
+
+      showCallingUI("FaceTime 撥號中", `呼叫： ${targetId}`, true);
+      playRingtoneEffect();
+
+      currentCall = peer.call(targetId, localStream);
+
+      currentCall.on('stream', (remoteMediaStream) => {
+        stopRingtoneEffect();
+        handleRemoteStream(remoteMediaStream);
+        transitionToCallActive();
+      });
+
+      currentCall.on('close', () => {
+        endCall();
+      });
+    }
+
+    // ================= 4. 通話狀態更新與媒體控制 =================
+
+    function handleRemoteStream(stream) {
+      remoteStream = stream;
+      const remoteVideo = document.getElementById('remote-video');
+      remoteVideo.srcObject = stream;
+      document.getElementById('video-placeholder').classList.add('opacity-0');
+    }
+
+    // 平滑切換至通話中 UI (當雙方 100% 建立好 WebRTC P2P 連線後才被動觸發)
+    function transitionToCallActive() {
+      // 隱藏設定面板與呼叫遮罩
+      document.getElementById('setup-panel').classList.add('translate-y-full', 'opacity-0');
+      document.getElementById('calling-overlay').classList.add('opacity-0', 'pointer-events-none');
+      
+      // 展開懸浮控制按鈕
+      const callOverlay = document.getElementById('call-overlay');
+      callOverlay.classList.remove('translate-y-full');
+      callOverlay.classList.add('translate-y-0');
+
+      // 顯示子畫面 (PIP)
+      const localContainer = document.getElementById('local-video-container');
+      localContainer.classList.remove('hidden');
+      localContainer.classList.add('scale-100');
+
+      startCallTimer();
+    }
+
+    function toggleMic() {
+      if (!localStream) return;
+      isMicMuted = !isMicMuted;
+      localStream.getAudioTracks().forEach(track => {
+        track.enabled = !isMicMuted;
+      });
+      
+      const btn = document.getElementById('btn-toggle-mic');
+      if (isMicMuted) {
+        btn.classList.add('bg-appleRed');
+        btn.classList.remove('bg-appleLightGray');
+        btn.innerHTML = `<i data-lucide="mic-off" class="w-5 h-5 md:w-6 md:h-6"></i>`;
+        showToast("麥克風已靜音");
+      } else {
+        btn.classList.remove('bg-appleRed');
+        btn.classList.add('bg-appleLightGray');
+        btn.innerHTML = `<i data-lucide="mic" class="w-5 h-5 md:w-6 md:h-6"></i>`;
+        showToast("麥克風已開啟");
+      }
+      safeCreateIcons();
+    }
+
+    function toggleVideo() {
+      if (!localStream) return;
+      isVideoStopped = !isVideoStopped;
+      localStream.getVideoTracks().forEach(track => {
+        track.enabled = !isVideoStopped;
+      });
+
+      const btn = document.getElementById('btn-toggle-video');
+      const localVid = document.getElementById('local-video');
+      if (isVideoStopped) {
+        btn.classList.add('bg-appleRed');
+        btn.classList.remove('bg-appleLightGray');
+        btn.innerHTML = `<i data-lucide="video-off" class="w-5 h-5 md:w-6 md:h-6"></i>`;
+        localVid.style.opacity = '0';
+        showToast("相機已關閉");
+      } else {
+        btn.classList.remove('bg-appleRed');
+        btn.classList.add('bg-appleLightGray');
+        btn.innerHTML = `<i data-lucide="video" class="w-5 h-5 md:w-6 md:h-6"></i>`;
+        localVid.style.opacity = '1';
+        showToast("相機已開啟");
+      }
+      safeCreateIcons();
+    }
+
+    async function switchCamera() {
+      if (!localStream) return;
+      currentFacingMode = currentFacingMode === "user" ? "environment" : "user";
+      
+      const videoTrack = localStream.getVideoTracks()[0];
+      if (videoTrack) {
+        videoTrack.stop();
+      }
+      
+      try {
+        const newStream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: currentFacingMode },
+          audio: true
+        });
+        
+        const newVideoTrack = newStream.getVideoTracks()[0];
+        
+        if (peerConnection) {
+          const senders = peerConnection.getSenders();
+          const sender = senders.find(s => s.track && s.track.kind === 'video');
+          if (sender) {
+            sender.replaceTrack(newVideoTrack);
+          }
+        } else if (currentCall && currentCall.peerConnection) {
+          const senders = currentCall.peerConnection.getSenders();
+          const sender = senders.find(s => s.track && s.track.kind === 'video');
+          if (sender) {
+            sender.replaceTrack(newVideoTrack);
+          }
+        }
+        
+        localStream.removeTrack(videoTrack);
+        localStream.addTrack(newVideoTrack);
+        document.getElementById('local-video').srcObject = localStream;
+        
+        const localVidEl = document.getElementById('local-video');
+        if (currentFacingMode === "environment") {
+          localVidEl.classList.remove('mirror-view');
+        } else {
+          localVidEl.classList.add('mirror-view');
+        }
+
+        showToast("相機切換成功");
+      } catch (err) {
+        showToast("切換相機失敗: " + err.message);
+      }
+    }
+
+    async function toggleScreenShare() {
+      if (!localStream) return;
+      
+      const btn = document.getElementById('btn-share-screen');
+      
+      if (isScreenSharing) {
+        await switchCamera();
+        isScreenSharing = false;
+        btn.classList.remove('bg-appleGreen');
+        btn.classList.add('bg-appleLightGray');
+        showToast("已停止螢幕分享");
+      } else {
+        try {
+          const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+          const screenTrack = screenStream.getVideoTracks()[0];
+          
+          if (peerConnection) {
+            const senders = peerConnection.getSenders();
+            const sender = senders.find(s => s.track && s.track.kind === 'video');
+            if (sender) {
+              sender.replaceTrack(screenTrack);
+            }
+          } else if (currentCall && currentCall.peerConnection) {
+            const senders = currentCall.peerConnection.getSenders();
+            const sender = senders.find(s => s.track && s.track.kind === 'video');
+            if (sender) {
+              sender.replaceTrack(screenTrack);
+            }
+          }
+          
+          document.getElementById('local-video').srcObject = screenStream;
+          document.getElementById('local-video').classList.remove('mirror-view');
+
+          screenTrack.onended = () => {
+            toggleScreenShare(); 
+          };
+          
+          isScreenSharing = true;
+          btn.classList.add('bg-appleGreen');
+          btn.classList.remove('bg-appleLightGray');
+          showToast("正在分享螢幕畫面");
+        } catch (err) {
+          showToast("啟動螢幕分享失敗: " + err.message);
+        }
+      }
+    }
+
+    function showCallingUI(title, status, cancelable) {
+      const callingOverlay = document.getElementById('calling-overlay');
+      document.getElementById('calling-name').innerText = title;
+      document.getElementById('calling-status').innerText = status;
+      
+      callingOverlay.classList.remove('opacity-0', 'pointer-events-none');
+      callingOverlay.classList.add('opacity-100');
+    }
+
+    function endCall() {
+      stopRingtoneEffect();
+      stopCallTimer();
+
+      isCallConnected = false;
+
+      if (peerConnection) {
+        try { peerConnection.close(); } catch(e){}
+        peerConnection = null;
+      }
+      if (currentCall) {
+        try { currentCall.close(); } catch(e){}
+        currentCall = null;
+      }
+
+      document.getElementById('remote-video').srcObject = null;
+      document.getElementById('video-placeholder').classList.remove('opacity-0');
+
+      document.getElementById('setup-panel').classList.remove('translate-y-full', 'opacity-0');
+      document.getElementById('calling-overlay').classList.add('opacity-0', 'pointer-events-none');
+      document.getElementById('call-overlay').classList.remove('translate-y-0');
+      document.getElementById('call-overlay').classList.add('translate-y-full');
+      document.getElementById('local-video-container').classList.add('hidden');
+
+      isMicMuted = false;
+      isVideoStopped = false;
+      isScreenSharing = false;
+      
+      const micBtn = document.getElementById('btn-toggle-mic');
+      micBtn.classList.remove('bg-appleRed');
+      micBtn.classList.add('bg-appleLightGray');
+      micBtn.innerHTML = `<i data-lucide="mic" class="w-5 h-5 md:w-6 md:h-6"></i>`;
+      
+      const vidBtn = document.getElementById('btn-toggle-video');
+      vidBtn.classList.remove('bg-appleRed');
+      vidBtn.classList.add('bg-appleLightGray');
+      vidBtn.innerHTML = `<i data-lucide="video" class="w-5 h-5 md:w-6 md:h-6"></i>`;
+
+      const screenBtn = document.getElementById('btn-share-screen');
+      screenBtn.classList.remove('bg-appleGreen');
+      screenBtn.classList.add('bg-appleLightGray');
+
+      document.getElementById('local-video').style.opacity = '1';
+
+      safeCreateIcons();
+      showToast("通話已結束。");
+    }
+
+    function startCallTimer() {
+      clearInterval(timerInterval);
+      callSeconds = 0;
+      const timerLabel = document.getElementById('call-timer');
+      timerInterval = setInterval(() => {
+        callSeconds++;
+        const mins = String(Math.floor(callSeconds / 60)).padStart(2, '0');
+        const secs = String(callSeconds % 60).padStart(2, '0');
+        timerLabel.innerText = `${mins}:${secs}`;
+      }, 1000);
+    }
+
+    function stopCallTimer() {
+      clearInterval(timerInterval);
+      document.getElementById('call-timer').innerText = "00:00";
+    }
+
+    // ================= 5. Web Audio API 離線鈴聲合成 =================
+
+    function playRingtoneEffect() {
+      if (ringInterval) return;
+      
+      try {
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContextClass) return;
+        
+        audioCtx = new AudioContextClass();
+        
+        const ring = () => {
+          if (!audioCtx) return;
+          
+          const osc1 = audioCtx.createOscillator();
+          const osc2 = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+          
+          osc1.type = 'sine';
+          osc1.frequency.setValueAtTime(400, audioCtx.currentTime);
+          
+          osc2.type = 'sine';
+          osc2.frequency.setValueAtTime(450, audioCtx.currentTime);
+          
+          gain.gain.setValueAtTime(0, audioCtx.currentTime);
+          gain.gain.linearRampToValueAtTime(0.08, audioCtx.currentTime + 0.15);
+          gain.gain.setValueAtTime(0.08, audioCtx.currentTime + 1.2);
+          gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 1.4);
+          
+          osc1.connect(gain);
+          osc2.connect(gain);
+          gain.connect(audioCtx.destination);
+          
+          osc1.start();
+          osc2.start();
+          
+          osc1.stop(audioCtx.currentTime + 1.5);
+          osc2.stop(audioCtx.currentTime + 1.5);
+        };
+        
+        ring();
+        ringInterval = setInterval(ring, 2800);
+      } catch (err) {
+        console.warn("無法初始化 Web Audio 鈴聲：", err);
+      }
+    }
+
+    function stopRingtoneEffect() {
+      if (ringInterval) {
+        clearInterval(ringInterval);
+        ringInterval = null;
+      }
+      if (audioCtx) {
+        audioCtx.close().catch(() => {});
+        audioCtx = null;
+      }
+    }
+  </script>
+</body>
+</html>
