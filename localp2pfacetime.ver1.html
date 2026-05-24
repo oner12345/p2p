@@ -1,0 +1,1790 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>FaceTime Web - 內網本地單一檔案版</title>
+  <style>
+    /* ================= 核心 CSS 樣式 (替代 Tailwind) ================= */
+    :root {
+      --apple-green: #30D158;
+      --apple-red: #FF453A;
+      --apple-dark: #1C1C1E;
+      --apple-gray: #2C2C2E;
+      --apple-light-gray: #3A3A3C;
+      --apple-blue: #0A84FF;
+      --font-stack: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    body {
+      background-color: #000;
+      color: #fff;
+      font-family: var(--font-stack);
+      height: 100vh;
+      width: 100vw;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      user-select: none;
+    }
+
+    /* 頂部狀態欄 */
+    header {
+      padding: 24px 24px 12px 24px;
+      z-index: 10;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-shrink: 0;
+    }
+
+    .status-indicator {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background-color: var(--apple-green);
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0% { opacity: 0.5; }
+      50% { opacity: 1; }
+      100% { opacity: 0.5; }
+    }
+
+    .mode-text {
+      font-size: 12px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: #a1a1a6;
+      font-weight: 600;
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .icon-btn {
+      background-color: rgba(44, 44, 46, 0.8);
+      border: none;
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: background-color 0.2s;
+    }
+
+    .icon-btn:hover {
+      background-color: rgba(58, 58, 60, 0.8);
+    }
+
+    .icon-btn svg {
+      width: 20px;
+      height: 20px;
+      fill: none;
+      stroke: #d1d1d6;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .badge {
+      font-size: 12px;
+      background-color: var(--apple-gray);
+      color: #d1d1d6;
+      padding: 6px 12px;
+      border-radius: 9999px;
+      font-weight: 500;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    /* 主視窗容器 - RWD 關鍵 */
+    main {
+      position: relative;
+      flex-1: 1 1 0%;
+      width: 100%;
+      max-width: 480px; /* 限制桌面端最大寬度，保持手機介面比例 */
+      margin: 0 auto;
+      padding: 0 24px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+
+    /* 進入畫面面板 */
+    .join-screen {
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+      width: 100%;
+      transition: all 0.5s ease-out;
+    }
+
+    .logo-area {
+      text-align: center;
+    }
+
+    .logo-icon {
+      display: inline-flex;
+      padding: 16px;
+      border-radius: 24px;
+      background-color: rgba(48, 209, 88, 0.1);
+      color: var(--apple-green);
+      margin-bottom: 8px;
+    }
+
+    .logo-icon svg {
+      width: 48px;
+      height: 48px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2;
+    }
+
+    h1 {
+      font-size: 30px;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+    }
+
+    .subtitle {
+      font-size: 14px;
+      color: #a1a1a6;
+    }
+
+    /* Tab 切換器 */
+    .tabs {
+      background-color: var(--apple-gray);
+      padding: 4px;
+      border-radius: 12px;
+      display: flex;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .tab {
+      flex: 1;
+      background: none;
+      border: none;
+      color: #a1a1a6;
+      padding: 8px 0;
+      font-size: 14px;
+      font-weight: 500;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .tab.active {
+      background-color: var(--apple-light-gray);
+      color: #fff;
+    }
+
+    /* 區塊面板 */
+    .panel {
+      background-color: rgba(44, 44, 46, 0.5);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 20px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .panel-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .panel-title {
+      font-size: 12px;
+      color: #a1a1a6;
+      font-weight: 500;
+    }
+
+    .panel-status {
+      font-size: 12px;
+      color: #ff9f0a;
+    }
+
+    .id-display-box {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background-color: rgba(0, 0, 0, 0.4);
+      padding: 12px;
+      border-radius: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .my-id-text {
+      font-family: monospace;
+      font-size: 14px;
+      color: var(--apple-green);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .text-link {
+      background: none;
+      border: none;
+      color: var(--apple-blue);
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .text-link svg {
+      width: 16px;
+      height: 16px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2;
+    }
+
+    /* 輸入框與按鈕 */
+    .input-text {
+      width: 100%;
+      background-color: rgba(0, 0, 0, 0.4);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 12px;
+      padding: 12px 16px;
+      color: #fff;
+      font-family: monospace;
+      font-size: 14px;
+    }
+
+    .input-text:focus {
+      outline: none;
+      border-color: var(--apple-green);
+    }
+
+    .btn {
+      width: 100%;
+      border: none;
+      border-radius: 12px;
+      padding: 14px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: all 0.2s;
+    }
+
+    .btn-green {
+      background-color: var(--apple-green);
+      color: #fff;
+    }
+
+    .btn-green:hover {
+      opacity: 0.9;
+    }
+
+    .btn-blue-outline {
+      background-color: rgba(10, 132, 255, 0.1);
+      color: var(--apple-blue);
+      border: 1px solid rgba(10, 132, 255, 0.3);
+      font-size: 12px;
+      padding: 10px;
+    }
+
+    .btn-green-outline {
+      background-color: rgba(48, 209, 88, 0.1);
+      color: var(--apple-green);
+      border: 1px solid rgba(48, 209, 88, 0.3);
+      font-size: 12px;
+      padding: 10px;
+    }
+
+    .btn-purple-outline {
+      background-color: rgba(191, 90, 242, 0.1);
+      color: #d8b4fe;
+      border: 1px solid rgba(191, 90, 242, 0.3);
+      font-size: 12px;
+      padding: 10px;
+    }
+
+    /* 本地相機預覽盒 */
+    .preview-box {
+      position: relative;
+      aspect-ratio: 16/9;
+      background-color: var(--apple-gray);
+      border-radius: 20px;
+      overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .preview-box video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      transform: scaleX(-1);
+    }
+
+    .preview-label {
+      position: absolute;
+      bottom: 12px;
+      left: 12px;
+      background-color: rgba(0, 0, 0, 0.6);
+      padding: 6px 12px;
+      border-radius: 9999px;
+      font-size: 12px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .preview-label svg {
+      width: 14px;
+      height: 14px;
+      stroke: var(--apple-green);
+      fill: none;
+      stroke-width: 2;
+    }
+
+    /* 手動模式輔助說明 */
+    .manual-tip {
+      font-size: 12px;
+      color: #a1a1a6;
+      line-height: 1.5;
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    textarea.input-text {
+      resize: none;
+    }
+
+    /* ================= 通話中畫面樣式 ================= */
+    .call-screen {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 20;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 16px;
+    }
+
+    .remote-video-container {
+      position: absolute;
+      inset: 0;
+      background-color: #111;
+      border-radius: 24px;
+      overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .remote-video-container video, 
+    .remote-video-container canvas {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .placeholder-view {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background-color: var(--apple-gray);
+      gap: 16px;
+    }
+
+    .placeholder-avatar {
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
+      background-color: var(--apple-light-gray);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .placeholder-avatar svg {
+      width: 40px;
+      height: 40px;
+      stroke: #a1a1a6;
+      fill: none;
+      stroke-width: 2;
+    }
+
+    /* 通話頂部覆蓋層 */
+    .call-header {
+      position: relative;
+      z-index: 30;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      width: 100%;
+    }
+
+    .partner-info {
+      background-color: rgba(0, 0, 0, 0.5);
+      padding: 12px;
+      border-radius: 16px;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .partner-name {
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .call-duration {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .green-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background-color: var(--apple-green);
+    }
+
+    .timer-text {
+      font-size: 10px;
+      color: #d1d1d6;
+      font-family: monospace;
+    }
+
+    /* 本地小視窗 (PIP) */
+    .local-pip {
+      width: 110px;
+      aspect-ratio: 3/4;
+      background-color: #000;
+      border-radius: 16px;
+      overflow: hidden;
+      border: 2px solid rgba(255, 255, 255, 0.2);
+      box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+      position: relative;
+    }
+
+    .local-pip video,
+    .local-pip canvas {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      transform: scaleX(-1);
+    }
+
+    /* 通話底部覆蓋層 */
+    .call-footer {
+      position: relative;
+      z-index: 30;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+      width: 100%;
+    }
+
+    /* 濾鏡橫向捲動列 */
+    .filter-bar {
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+      padding: 4px;
+      max-width: 100%;
+      scrollbar-width: none; /* Firefox */
+    }
+
+    .filter-bar::-webkit-scrollbar {
+      display: none; /* Safari/Chrome */
+    }
+
+    .filter-pill {
+      flex-shrink: 0;
+      font-size: 12px;
+      padding: 6px 12px;
+      border-radius: 9999px;
+      background-color: rgba(0,0,0,0.6);
+      border: 1px solid rgba(255,255,255,0.1);
+      color: #d1d1d6;
+      cursor: pointer;
+    }
+
+    .filter-pill.active {
+      background-color: var(--apple-blue);
+      color: #fff;
+      border-color: var(--apple-blue);
+    }
+
+    /* 控制面板 */
+    .control-panel {
+      background-color: rgba(44, 44, 46, 0.75);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      padding: 14px 24px;
+      border-radius: 24px;
+      display: flex;
+      align-items: center;
+      gap: 24px;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.4);
+    }
+
+    .control-btn {
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      border: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .btn-gray {
+      background-color: var(--apple-light-gray);
+      color: #fff;
+    }
+
+    .btn-gray:hover {
+      background-color: #fff;
+      color: #000;
+    }
+
+    .btn-hang {
+      background-color: var(--apple-red);
+      color: #fff;
+      width: 48px;
+      height: 48px;
+    }
+
+    .btn-hang:hover {
+      opacity: 0.9;
+    }
+
+    .control-btn svg {
+      width: 20px;
+      height: 20px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2;
+    }
+
+    /* ================= 彈出視窗樣式 (Modal) ================= */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background-color: rgba(0,0,0,0.8);
+      z-index: 50;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+
+    .modal-content {
+      background-color: var(--apple-gray);
+      width: 100%;
+      max-width: 400px;
+      border-radius: 20px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .modal-title {
+      font-size: 18px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .modal-title svg {
+      stroke: var(--apple-blue);
+      fill: none;
+      width: 20px;
+      height: 20px;
+      stroke-width: 2;
+    }
+
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .form-label {
+      font-size: 11px;
+      color: #a1a1a6;
+      text-transform: uppercase;
+      font-weight: 600;
+    }
+
+    .toggle-container {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 0;
+    }
+
+    /* 原生切換開關 */
+    .switch {
+      position: relative;
+      inline-size: 51px;
+      block-size: 31px;
+    }
+
+    .switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .slider {
+      position: absolute;
+      cursor: pointer;
+      inset: 0;
+      background-color: var(--apple-light-gray);
+      transition: .4s;
+      border-radius: 34px;
+    }
+
+    .slider:before {
+      position: absolute;
+      content: "";
+      height: 27px;
+      width: 27px;
+      left: 2px;
+      bottom: 2px;
+      background-color: white;
+      transition: .4s;
+      border-radius: 50%;
+    }
+
+    input:checked + .slider {
+      background-color: var(--apple-green);
+    }
+
+    input:checked + .slider:before {
+      transform: translateX(20px);
+    }
+
+    /* 抽屜式工具箱選單 */
+    .drawer-overlay {
+      position: fixed;
+      inset: 0;
+      background-color: rgba(0,0,0,0.6);
+      z-index: 50;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-end;
+    }
+
+    .drawer-content {
+      background-color: var(--apple-gray);
+      border-top-left-radius: 24px;
+      border-top-right-radius: 24px;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      transform: translateY(100%);
+      transition: transform 0.3s ease-out;
+    }
+
+    .drawer-content.open {
+      transform: translateY(0);
+    }
+
+    .drawer-handle {
+      width: 40px;
+      height: 5px;
+      background-color: var(--apple-light-gray);
+      border-radius: 9999px;
+      align-self: center;
+      cursor: pointer;
+    }
+
+    .drawer-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    .drawer-btn {
+      background-color: var(--apple-light-gray);
+      border: none;
+      border-radius: 16px;
+      padding: 16px;
+      color: #fff;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      transition: all 0.2s;
+    }
+
+    .drawer-btn:hover {
+      background-color: #fff;
+      color: #000;
+    }
+
+    .drawer-btn svg {
+      width: 24px;
+      height: 24px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2;
+    }
+
+    /* Toast 提示 */
+    .toast {
+      position: fixed;
+      top: 24px;
+      left: 50%;
+      transform: translate(-50%, -20px);
+      z-index: 100;
+      background-color: rgba(44, 44, 46, 0.9);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid rgba(255,255,255,0.1);
+      padding: 12px 24px;
+      border-radius: 9999px;
+      font-size: 14px;
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+      opacity: 0;
+      transition: all 0.3s;
+      pointer-events: none;
+    }
+
+    .toast.show {
+      opacity: 1;
+      transform: translate(-50%, 0);
+    }
+
+    footer {
+      padding: 16px;
+      text-align: center;
+      font-size: 10px;
+      color: #555;
+      flex-shrink: 0;
+    }
+
+    /* 隱藏元素 */
+    .hidden {
+      display: none !important;
+    }
+
+    /* RWD 適應性：針對平板及小型桌面端的優化 */
+    @media (min-width: 640px) {
+      .local-pip {
+        width: 144px;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ================= 頂部狀態欄 ================= -->
+  <header>
+    <div class="status-indicator">
+      <div class="dot"></div>
+      <span class="mode-text" id="mode-indicator">內網 P2P 模式</span>
+    </div>
+    <div class="header-actions">
+      <button id="settings-btn" class="icon-btn" title="設定信令伺服器">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+      </button>
+      <span class="badge" id="connection-status">未連接</span>
+    </div>
+  </header>
+
+  <!-- ================= 主視窗切換區 ================= -->
+  <main>
+
+    <!-- 1. 進入畫面 -->
+    <div id="join-screen" class="join-screen">
+      <div class="logo-area">
+        <div class="logo-icon">
+          <svg viewBox="0 0 24 24"><path d="M23 7l-7 5 7 5V7z"></path><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
+        </div>
+        <h1>FaceTime Local</h1>
+        <p class="subtitle">100% 本地運行 • 無外網 WebRTC</p>
+      </div>
+
+      <!-- 模式切換 Tabs -->
+      <div class="tabs">
+        <button id="tab-auto" class="tab active">區域網信令模式</button>
+        <button id="tab-manual" class="tab">純手動免伺服器</button>
+      </div>
+
+      <!-- 信令伺服器面板 -->
+      <div id="panel-auto" class="panel">
+        <div class="panel-header">
+          <span class="panel-title">本機區域網 ID 帳號</span>
+          <span id="server-status-label" class="panel-status">正在連線...</span>
+        </div>
+        <div class="id-display-box">
+          <span id="my-peer-id" class="my-id-text">取得中...</span>
+          <button id="copy-id-btn" class="text-link">
+            <svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>複製
+          </button>
+        </div>
+
+        <div class="form-group" style="margin-top: 8px;">
+          <span class="form-label">輸入對方 ID 發起呼叫</span>
+          <input type="text" id="peer-id-input" placeholder="例如: 101" class="input-text">
+        </div>
+        <button id="call-btn" class="btn btn-green">
+          <svg viewBox="0 0 24 24" style="width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>
+          發起視訊通話
+        </button>
+      </div>
+
+      <!-- 免伺服器手動面板 -->
+      <div id="panel-manual" class="panel hidden">
+        <p class="manual-tip">
+          <strong>無伺服器模式：</strong>透過互相貼上連線代碼，直接在局域網內直連。
+        </p>
+        <div style="border-top: 1px solid rgba(255,255,255,0.05); padding-top: 8px;">
+          <button id="manual-init-btn" class="btn btn-blue-outline">
+            步驟 1：生成並複製「我的連線代碼」
+          </button>
+        </div>
+        <div style="border-top: 1px solid rgba(255,255,255,0.05); padding-top: 8px; display:flex; flex-direction:column; gap:8px;">
+          <span class="form-label">步驟 2：貼上對方的代碼並回應</span>
+          <textarea id="manual-import-sdp" rows="3" placeholder="在此貼上對方的連線代碼..." class="input-text"></textarea>
+          <div class="grid-2">
+            <button id="manual-answer-btn" class="btn btn-green-outline">
+              1. 生成應答代碼
+            </button>
+            <button id="manual-connect-btn" class="btn btn-purple-outline">
+              2. 貼上應答並連線
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 相機預覽 -->
+      <div class="preview-box">
+        <video id="local-preview-video" autoplay playsinline muted></video>
+        <div class="preview-label">
+          <svg viewBox="0 0 24 24"><path d="M23 7l-7 5 7 5V7z"></path><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
+          <span>相機預覽</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 2. 通話中畫面 -->
+    <div id="call-screen" class="call-screen hidden">
+      <div class="remote-video-container">
+        <canvas id="remote-canvas" class="hidden"></canvas>
+        <video id="remote-video" autoplay playsinline></video>
+
+        <!-- 對方關相機佔位符 -->
+        <div id="remote-placeholder" class="placeholder-view hidden">
+          <div class="placeholder-avatar">
+            <svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+          </div>
+          <p class="subtitle">對方已關閉相機</p>
+        </div>
+      </div>
+
+      <!-- 通話頂部 -->
+      <div class="call-header">
+        <div class="partner-info">
+          <span class="partner-name" id="call-partner-id">正在連線...</span>
+          <div class="call-duration">
+            <div class="green-dot"></div>
+            <span class="timer-text" id="call-timer">00:00</span>
+          </div>
+        </div>
+
+        <!-- 本地 PIP 懸浮 -->
+        <div class="local-pip">
+          <canvas id="local-canvas" class="hidden"></canvas>
+          <video id="local-video" autoplay playsinline muted></video>
+        </div>
+      </div>
+
+      <!-- 通話底部 -->
+      <div class="call-footer">
+        <!-- 濾鏡切換 -->
+        <div class="filter-bar">
+          <button onclick="applyFilter('none')" class="filter-pill active">原圖</button>
+          <button onclick="applyFilter('warm')" class="filter-pill">暖色調</button>
+          <button onclick="applyFilter('cool')" class="filter-pill">冷色調</button>
+          <button onclick="applyFilter('grayscale')" class="filter-pill">黑白</button>
+          <button onclick="applyFilter('sepia')" class="filter-pill">復古</button>
+          <button onclick="applyFilter('invert')" class="filter-pill">反色</button>
+        </div>
+
+        <!-- 控制器面板 -->
+        <div class="control-panel">
+          <button id="btn-toggle-mic" class="control-btn btn-gray" title="開/關麥克風">
+            <svg id="mic-icon" viewBox="0 0 24 24"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v1a7 7 0 0 1-14 0v-1M12 19v4M8 23h8"></path></svg>
+          </button>
+          <button id="btn-toggle-cam" class="control-btn btn-gray" title="開/關相機">
+            <svg id="cam-icon" viewBox="0 0 24 24"><path d="M23 7l-7 5 7 5V7z"></path><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
+          </button>
+          <button id="btn-more-options" class="control-btn btn-gray" title="更多選項">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle><circle cx="5" cy="12" r="1"></circle></svg>
+          </button>
+          <button id="btn-hangup" class="control-btn btn-hang" title="掛斷">
+            <svg viewBox="0 0 24 24"><path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91z" style="fill:currentColor;stroke:none;"></path></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- ================= 內網設定彈出視窗 ================= -->
+  <div id="settings-modal" class="modal-overlay hidden">
+    <div class="modal-content">
+      <div class="modal-title">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+        <span>本地/內網信令設定</span>
+      </div>
+      <div class="form-group">
+        <label class="form-label">信令伺服器 IP (Host)</label>
+        <input type="text" id="cfg-host" placeholder="例如: 192.168.1.100" class="input-text">
+      </div>
+      <div class="form-group">
+        <label class="form-label">連接埠 (Port)</label>
+        <input type="number" id="cfg-port" placeholder="預設: 8080" class="input-text">
+      </div>
+      <div class="toggle-container">
+        <span class="form-label" style="text-transform:none;">啟用加密 (HTTPS/WSS)</span>
+        <label class="switch">
+          <input type="checkbox" id="cfg-secure">
+          <span class="slider"></span>
+        </label>
+      </div>
+      <button id="btn-save-settings" class="btn btn-green">儲存設定並重新連線</button>
+    </div>
+  </div>
+
+  <!-- ================= 底部抽屜工具箱 ================= -->
+  <div id="options-panel" class="drawer-overlay hidden">
+    <div id="options-content" class="drawer-content">
+      <div class="drawer-handle" id="close-options-btn"></div>
+      <div class="drawer-grid">
+        <button id="btn-share-screen" class="drawer-btn">
+          <svg viewBox="0 0 24 24"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"></path><path d="M17 12H7M13 17l5-5-5-5"></path></svg>
+          <span>分享螢幕</span>
+        </button>
+        <button id="btn-record" class="drawer-btn">
+          <svg viewBox="0 0 24 24" style="stroke: var(--apple-red);"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="3" style="fill: var(--apple-red);"></circle></svg>
+          <span id="record-text">開始錄影</span>
+        </button>
+        <button id="btn-flip" class="drawer-btn">
+          <svg viewBox="0 0 24 24"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path></svg>
+          <span>切換鏡頭</span>
+        </button>
+        <button id="btn-screenshot" class="drawer-btn">
+          <svg viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
+          <span>畫面擷取</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= 系統提示 Toast ================= -->
+  <div id="toast" class="toast">
+    <span id="toast-message">提示訊息</span>
+  </div>
+
+  <footer>
+    <span>FaceTime Local 版 • 100% 離線架構</span>
+  </footer>
+
+  <!-- ===================================================
+       核心邏輯 JS
+       同時包含「原生免伺服器」和「自建超輕量 WebSocket 信令」功能
+       =================================================== -->
+  <script>
+    // 狀態管理
+    let localStream = null;
+    let remoteStream = null;
+    let localVideoTrack = null;
+    let ws = null;                  // 原生 WebSocket 客戶端
+    let pc = null;                  // RTCPeerConnection 物件
+    let currentMode = 'auto';       // 'auto' 區域網伺服器, 'manual' 免伺服器手動
+    let isMicMuted = false;
+    let isCamOff = false;
+    let activeFilter = 'none';
+    let currentFacingMode = 'user';
+    let animationFrameId = null;
+    let myId = 'room-' + Math.floor(100 + Math.random() * 900); // 隨機產生房號
+    let targetPeerId = null;
+
+    // 錄影相關
+    let mediaRecorder = null;
+    let recordedChunks = [];
+    let isRecording = false;
+
+    // 通話計時器
+    let timerInterval = null;
+    let callSeconds = 0;
+
+    // 預設信令伺服器設定 (Node.js WebSocket)
+    const DEFAULT_CONFIG = {
+      host: '127.0.0.1',
+      port: 8080,
+      secure: false
+    };
+    let currentConfig = { ...DEFAULT_CONFIG };
+
+    // DOM 節點
+    const joinScreen = document.getElementById('join-screen');
+    const callScreen = document.getElementById('call-screen');
+    const localVideo = document.getElementById('local-video');
+    const remoteVideo = document.getElementById('remote-video');
+    const localPreviewVideo = document.getElementById('local-preview-video');
+    const optionsPanel = document.getElementById('options-panel');
+    const optionsContent = document.getElementById('options-content');
+    const settingsModal = document.getElementById('settings-modal');
+    const toast = document.getElementById('toast');
+
+    // UI Tab 切換
+    const tabAuto = document.getElementById('tab-auto');
+    const tabManual = document.getElementById('tab-manual');
+    const panelAuto = document.getElementById('panel-auto');
+    const panelManual = document.getElementById('panel-manual');
+
+    // ================= 1. 初始化與相機探測 =================
+    window.addEventListener('load', async () => {
+      loadConfig();
+      await getLocalMedia();
+      initNativeSignaling();
+    });
+
+    // 取得相機及麥克風串流
+    async function getLocalMedia() {
+      try {
+        if (localStream) {
+          localStream.getTracks().forEach(track => track.stop());
+        }
+        localStream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: currentFacingMode, width: { ideal: 640 }, height: { ideal: 480 } },
+          audio: true
+        });
+        localVideoTrack = localStream.getVideoTracks()[0];
+        localPreviewVideo.srcObject = localStream;
+        localVideo.srcObject = localStream;
+
+        // 如果處於通話中，即時更新視訊軌道
+        if (pc) {
+          const senders = pc.getSenders();
+          const videoSender = senders.find(s => s.track && s.track.kind === 'video');
+          if (videoSender && localVideoTrack) {
+            videoSender.replaceTrack(localVideoTrack);
+          }
+        }
+      } catch (err) {
+        showToast('無法啟動相機：' + err.message);
+      }
+    }
+
+    // ================= 2. 區域網內聯網原生 WebSocket 信令客戶端 =================
+    function initNativeSignaling() {
+      if (ws) {
+        ws.close();
+      }
+
+      const statusLabel = document.getElementById('server-status-label');
+      statusLabel.innerText = "連接信令伺服器中...";
+      statusLabel.style.color = "#ff9f0a";
+      document.getElementById('my-peer-id').innerText = myId;
+
+      try {
+        const protocol = currentConfig.secure ? 'wss' : 'ws';
+        ws = new WebSocket(`${protocol}://${currentConfig.host}:${currentConfig.port}`);
+
+        ws.onopen = () => {
+          statusLabel.innerText = "信令伺服器已連線";
+          statusLabel.style.color = "#30D158";
+          document.getElementById('connection-status').innerText = "在線";
+          // 註冊自己的 ID 到伺服器
+          ws.send(JSON.stringify({ type: 'register', id: myId }));
+        };
+
+        ws.onmessage = async (event) => {
+          const data = JSON.parse(event.data);
+          
+          switch (data.type) {
+            case 'call':
+              // 收到通話邀請，直接回應
+              showToast('收到內網通話邀請...');
+              targetPeerId = data.from;
+              await establishWebRTC(false); // 接收方建立 WebRTC 連線
+              break;
+            case 'offer':
+              await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
+              const answer = await pc.createAnswer();
+              await pc.setLocalDescription(answer);
+              ws.send(JSON.stringify({ type: 'answer', to: data.from, answer: answer }));
+              break;
+            case 'answer':
+              await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+              break;
+            case 'candidate':
+              if (pc) {
+                await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+              }
+              break;
+            case 'hangup':
+              hangup();
+              break;
+          }
+        };
+
+        ws.onerror = () => {
+          statusLabel.innerText = "信令連線失敗";
+          statusLabel.style.color = "#FF453A";
+          document.getElementById('connection-status').innerText = "離線";
+        };
+
+        ws.onclose = () => {
+          document.getElementById('connection-status').innerText = "離線";
+        };
+
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    // 發起通話 (自建信令模式)
+    document.getElementById('call-btn').addEventListener('click', async () => {
+      const target = document.getElementById('peer-id-input').value.trim();
+      if (!target) {
+        showToast('請輸入對方 ID！');
+        return;
+      }
+      targetPeerId = target;
+      showToast('正在撥打內網通話...');
+      await establishWebRTC(true); // 發起方建立 WebRTC 連線
+    });
+
+    // ================= 3. 原生 WebRTC 引擎核心 =================
+    async function establishWebRTC(isInitiator) {
+      if (pc) {
+        pc.close();
+      }
+
+      // 內網專用配置：移除 STUN/TURN，防範離線時尋找外網伺服器引致超時遲緩
+      pc = new RTCPeerConnection({ iceServers: [] });
+
+      // 將本地視訊音訊軌道注入 WebRTC
+      if (localStream) {
+        localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+      }
+
+      // 監聽遠端影音軌
+      pc.ontrack = (event) => {
+        remoteStream = event.streams[0];
+        remoteVideo.srcObject = remoteStream;
+        switchToCallUI();
+        document.getElementById('call-partner-id').innerText = targetPeerId || "內網直連";
+      };
+
+      // 收集內網 ICE Candidate，並透過信令通道同步
+      pc.onicecandidate = (event) => {
+        if (event.candidate && ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({
+            type: 'candidate',
+            to: targetPeerId,
+            candidate: event.candidate
+          }));
+        }
+      };
+
+      if (isInitiator) {
+        // 發起連線發送 Offer
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        ws.send(JSON.stringify({
+          type: 'offer',
+          to: targetPeerId,
+          offer: offer
+        }));
+      }
+    }
+
+    // ================= 4. 完全免伺服器「純手動」WebRTC 直連 =================
+    function initServerlessPC() {
+      if (pc) {
+        pc.close();
+      }
+
+      pc = new RTCPeerConnection({ iceServers: [] });
+
+      if (localStream) {
+        localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+      }
+
+      pc.ontrack = (event) => {
+        remoteStream = event.streams[0];
+        remoteVideo.srcObject = remoteStream;
+        switchToCallUI();
+        document.getElementById('call-partner-id').innerText = "手動直連 WebRTC";
+      };
+
+      pc.onconnectionstatechange = () => {
+        if (pc.connectionState === 'connected') {
+          showToast('手動直連建立成功！');
+        } else if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
+          hangup();
+        }
+      };
+    }
+
+    // 步驟 1: 發起者建立 Offer SDP 包
+    document.getElementById('manual-init-btn').addEventListener('click', async () => {
+      initServerlessPC();
+      try {
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+
+        pc.onicecandidate = (event) => {
+          if (event.candidate === null) {
+            // ICE 收集完成，將 SDP 轉成 Base64 代碼便於傳遞
+            const sdpCode = btoa(JSON.stringify(pc.localDescription));
+            copyToClipboard(sdpCode);
+            showToast('您的連線代碼已複製！請發給對方。');
+          }
+        };
+      } catch (err) {
+        showToast('生成 Offer 失敗: ' + err.message);
+      }
+    });
+
+    // 步驟 2-1: 接收者貼上代碼，產生 Answer 應答
+    document.getElementById('manual-answer-btn').addEventListener('click', async () => {
+      const code = document.getElementById('manual-import-sdp').value.trim();
+      if (!code) {
+        showToast('請先貼上對方的連線代碼！');
+        return;
+      }
+
+      try {
+        const remoteDesc = JSON.parse(atob(code));
+        if (remoteDesc.type !== 'offer') {
+          showToast('此代碼無效（非 Offer 包）');
+          return;
+        }
+
+        initServerlessPC();
+        await pc.setRemoteDescription(new RTCSessionDescription(remoteDesc));
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+
+        pc.onicecandidate = (event) => {
+          if (event.candidate === null) {
+            const answerCode = btoa(JSON.stringify(pc.localDescription));
+            copyToClipboard(answerCode);
+            showToast('回應代碼已複製！請發回給發起方。');
+          }
+        };
+      } catch (err) {
+        showToast('解密連線代碼失敗: ' + err.message);
+      }
+    });
+
+    // 步驟 2-2: 發起者貼上 Answer 完成直連通道
+    document.getElementById('manual-connect-btn').addEventListener('click', async () => {
+      const code = document.getElementById('manual-import-sdp').value.trim();
+      if (!code) {
+        showToast('請先貼上對方的回應代碼！');
+        return;
+      }
+
+      try {
+        const remoteDesc = JSON.parse(atob(code));
+        if (remoteDesc.type !== 'answer') {
+          showToast('此代碼無效（非 Answer 包）');
+          return;
+        }
+        if (!pc) {
+          showToast('WebRTC 控制器尚未準備好，請重新進行步驟 1');
+          return;
+        }
+        await pc.setRemoteDescription(new RTCSessionDescription(remoteDesc));
+        showToast('正在與對方進行 P2P 直連...');
+      } catch (err) {
+        showToast('連線失敗: ' + err.message);
+      }
+    });
+
+
+    // ================= 5. 通話控制功能與過濾鏡處理 =================
+    function switchToCallUI() {
+      joinScreen.classList.add('hidden');
+      callScreen.classList.remove('hidden');
+      startCallTimer();
+      setupCanvasFilters();
+    }
+
+    function hangup() {
+      stopCallTimer();
+      
+      if (ws && ws.readyState === WebSocket.OPEN && targetPeerId) {
+        ws.send(JSON.stringify({ type: 'hangup', to: targetPeerId }));
+      }
+
+      if (pc) {
+        pc.close();
+        pc = null;
+      }
+
+      if (isRecording) {
+        stopRecording();
+      }
+
+      if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId);
+        animationFrameId = null;
+      }
+
+      remoteStream = null;
+      remoteVideo.srcObject = null;
+      
+      // 復原 DOM 結構與關閉畫面
+      document.getElementById('remote-placeholder').classList.add('hidden');
+      remoteVideo.classList.remove('hidden');
+
+      callScreen.classList.add('hidden');
+      joinScreen.classList.remove('hidden');
+      showToast('通話已斷開');
+    }
+
+    document.getElementById('btn-hangup').addEventListener('click', hangup);
+
+    // 麥克風開關
+    document.getElementById('btn-toggle-mic').addEventListener('click', () => {
+      isMicMuted = !isMicMuted;
+      localStream.getAudioTracks().forEach(track => track.enabled = !isMicMuted);
+      
+      const icon = document.getElementById('mic-icon');
+      if (isMicMuted) {
+        icon.innerHTML = `<path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v1a7 7 0 0 1-14 0v-1M12 19v4M8 23h8"></path><line x1="1" y1="1" x2="23" y2="23" style="stroke:var(--apple-red);"></line>`;
+        showToast('已關閉麥克風');
+      } else {
+        icon.innerHTML = `<path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v1a7 7 0 0 1-14 0v-1M12 19v4M8 23h8"></path>`;
+        showToast('已開啟麥克風');
+      }
+    });
+
+    // 相機鏡頭開關
+    document.getElementById('btn-toggle-cam').addEventListener('click', () => {
+      isCamOff = !isCamOff;
+      localStream.getVideoTracks().forEach(track => track.enabled = !isCamOff);
+      
+      const icon = document.getElementById('cam-icon');
+      if (isCamOff) {
+        icon.innerHTML = `<path d="M23 7l-7 5 7 5V7z"></path><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect><line x1="1" y1="1" x2="23" y2="23" style="stroke:var(--apple-red);"></line>`;
+        showToast('已關閉本機鏡頭');
+      } else {
+        icon.innerHTML = `<path d="M23 7l-7 5 7 5V7z"></path><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>`;
+        showToast('已開啟本機鏡頭');
+      }
+    });
+
+    // 前後鏡頭切換 (RWD 適用)
+    document.getElementById('btn-flip').addEventListener('click', async () => {
+      currentFacingMode = currentFacingMode === 'user' ? 'environment' : 'user';
+      showToast(`正在切換至 ${currentFacingMode === 'user' ? '前置' : '後置'} 鏡頭...`);
+      await getLocalMedia();
+      closeDrawerMenu();
+    });
+
+    // ================= Canvas 濾鏡渲染機制 =================
+    const localCanvas = document.getElementById('local-canvas');
+    const remoteCanvas = document.getElementById('remote-canvas');
+
+    function applyFilter(filterName) {
+      activeFilter = filterName;
+      document.querySelectorAll('.filter-pill').forEach(btn => btn.classList.remove('active'));
+      event.target.classList.add('active');
+    }
+
+    function setupCanvasFilters() {
+      const localCtx = localCanvas.getContext('2d');
+      const remoteCtx = remoteCanvas.getContext('2d');
+
+      localCanvas.classList.remove('hidden');
+      localVideo.classList.add('hidden');
+      remoteCanvas.classList.remove('hidden');
+      remoteVideo.classList.add('hidden');
+
+      function renderLoop() {
+        if (!remoteStream && !localStream) return;
+
+        // 繪製與調色本機畫面
+        if (localVideo.readyState === localVideo.HAVE_ENOUGH_DATA) {
+          localCanvas.width = localVideo.videoWidth;
+          localCanvas.height = localVideo.videoHeight;
+          localCtx.drawImage(localVideo, 0, 0, localCanvas.width, localCanvas.height);
+          applyPixelFilter(localCtx, localCanvas.width, localCanvas.height);
+        }
+
+        // 繪製與調色對方畫面
+        if (remoteVideo.readyState === remoteVideo.HAVE_ENOUGH_DATA) {
+          remoteCanvas.width = remoteVideo.videoWidth;
+          remoteCanvas.height = remoteVideo.videoHeight;
+          remoteCtx.drawImage(remoteVideo, 0, 0, remoteCanvas.width, remoteCanvas.height);
+          applyPixelFilter(remoteCtx, remoteCanvas.width, remoteCanvas.height);
+        }
+
+        animationFrameId = requestAnimationFrame(renderLoop);
+      }
+
+      renderLoop();
+    }
+
+    // 原生輕量化圖像處理器
+    function applyPixelFilter(ctx, w, h) {
+      if (activeFilter === 'none') return;
+      const imgData = ctx.getImageData(0, 0, w, h);
+      const data = imgData.data;
+
+      for (let i = 0; i < data.length; i += 4) {
+        let r = data[i];
+        let g = data[i+1];
+        let b = data[i+2];
+
+        if (activeFilter === 'grayscale') {
+          let v = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+          data[i] = data[i+1] = data[i+2] = v;
+        } else if (activeFilter === 'warm') {
+          data[i] = Math.min(255, r * 1.15);
+          data[i+2] = Math.max(0, b * 0.85);
+        } else if (activeFilter === 'cool') {
+          data[i] = Math.max(0, r * 0.85);
+          data[i+2] = Math.min(255, b * 1.15);
+        } else if (activeFilter === 'sepia') {
+          data[i] = Math.min(255, (r * 0.393) + (g * 0.769) + (b * 0.189));
+          data[i+1] = Math.min(255, (r * 0.349) + (g * 0.686) + (b * 0.168));
+          data[i+2] = Math.min(255, (r * 0.272) + (g * 0.534) + (b * 0.131));
+        } else if (activeFilter === 'invert') {
+          data[i] = 255 - r;
+          data[i+1] = 255 - g;
+          data[i+2] = 255 - b;
+        }
+      }
+      ctx.putImageData(imgData, 0, 0);
+    }
+
+    // ================= 6. 通話畫面錄製、螢幕共享與截圖 =================
+    document.getElementById('btn-record').addEventListener('click', () => {
+      if (isRecording) {
+        stopRecording();
+      } else {
+        startRecording();
+      }
+      closeDrawerMenu();
+    });
+
+    function startRecording() {
+      if (!remoteStream && !localStream) return;
+      
+      recordedChunks = [];
+      const recordStream = new MediaStream();
+      
+      if (localStream && localStream.getAudioTracks().length > 0) {
+        recordStream.addTrack(localStream.getAudioTracks()[0]);
+      }
+      if (remoteStream && remoteStream.getAudioTracks().length > 0) {
+        recordStream.addTrack(remoteStream.getAudioTracks()[0]);
+      }
+
+      // 如果有開濾鏡，則錄製 Canvas，否則錄製遠端原始 Video 軌道
+      const videoTrack = remoteCanvas.captureStream ? remoteCanvas.captureStream().getVideoTracks()[0] : remoteVideo.srcObject.getVideoTracks()[0];
+      if (videoTrack) {
+        recordStream.addTrack(videoTrack);
+      }
+
+      try {
+        mediaRecorder = new MediaRecorder(recordStream, { mimeType: 'video/webm' });
+        mediaRecorder.ondataavailable = (e) => {
+          if (e.data.size > 0) recordedChunks.push(e.data);
+        };
+        
+        mediaRecorder.onstop = () => {
+          const blob = new Blob(recordedChunks, { type: 'video/webm' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.style.display = 'none';
+          a.href = url;
+          a.download = `FaceTime_Record_${Date.now()}.webm`;
+          document.body.appendChild(a);
+          a.click();
+          setTimeout(() => {
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+          }, 100);
+        };
+
+        mediaRecorder.start();
+        isRecording = true;
+        document.getElementById('record-text').innerText = "停止錄製並下載";
+        showToast('已啟動通話錄影錄音...');
+      } catch (err) {
+        showToast('錄製失敗: ' + err.message);
+      }
+    }
+
+    function stopRecording() {
+      if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+        mediaRecorder.stop();
+      }
+      isRecording = false;
+      document.getElementById('record-text').innerText = "開始錄影";
+      showToast('通話錄製已完成，正在下載...');
+    }
+
+    // 螢幕分享 (內網可用)
+    document.getElementById('btn-share-screen').addEventListener('click', async () => {
+      try {
+        const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+        const screenTrack = screenStream.getVideoTracks()[0];
+
+        if (pc) {
+          const senders = pc.getSenders();
+          const videoSender = senders.find(s => s.track && s.track.kind === 'video');
+          if (videoSender) {
+            videoSender.replaceTrack(screenTrack);
+          }
+        }
+
+        localPreviewVideo.srcObject = screenStream;
+        localVideo.srcObject = screenStream;
+        showToast('正在分享您的螢幕畫面...');
+
+        screenTrack.onended = async () => {
+          await getLocalMedia();
+          showToast('已終止螢幕分享');
+        };
+
+      } catch (err) {
+        showToast('無法分享螢幕: ' + err.message);
+      }
+      closeDrawerMenu();
+    });
+
+    // 畫質截圖
+    document.getElementById('btn-screenshot').addEventListener('click', () => {
+      const snapCanvas = document.createElement('canvas');
+      snapCanvas.width = remoteCanvas.width;
+      snapCanvas.height = remoteCanvas.height;
+      const ctx = snapCanvas.getContext('2d');
+
+      // 繪製遠端對象主畫面
+      ctx.drawImage(remoteCanvas, 0, 0);
+      
+      // 疊加本機小視窗於右下角
+      const pW = snapCanvas.width / 4;
+      const pH = snapCanvas.height / 4;
+      ctx.drawImage(localCanvas, snapCanvas.width - pW - 20, snapCanvas.height - pH - 20, pW, pH);
+
+      const a = document.createElement('a');
+      a.download = `FaceTime_Snapshot_${Date.now()}.png`;
+      a.href = snapCanvas.toDataURL('image/png');
+      a.click();
+      
+      showToast('通話截圖已完成');
+      closeDrawerMenu();
+    });
+
+
+    // ================= 7. RWD 輔助與 UI 工具函數 =================
+
+    // 系統 Toast 發送
+    function showToast(msg) {
+      document.getElementById('toast-message').innerText = msg;
+      toast.classList.add('show');
+      setTimeout(() => {
+        toast.classList.remove('show');
+      }, 3000);
+    }
+
+    // 計時器運作
+    function startCallTimer() {
+      callSeconds = 0;
+      const timerLabel = document.getElementById('call-timer');
+      timerInterval = setInterval(() => {
+        callSeconds++;
+        const mins = String(Math.floor(callSeconds / 60)).padStart(2, '0');
+        const secs = String(callSeconds % 60).padStart(2, '0');
+        timerLabel.innerText = `${mins}:${secs}`;
+      }, 1000);
+    }
+
+    function stopCallTimer() {
+      if (timerInterval) {
+        clearInterval(timerInterval);
+        timerInterval = null;
+      }
+      document.getElementById('call-timer').innerText = "00:00";
+    }
+
+    // 模式頁面切換
+    tabAuto.addEventListener('click', () => {
+      currentMode = 'auto';
+      tabAuto.classList.add('active');
+      tabManual.classList.remove('active');
+      panelAuto.classList.remove('hidden');
+      panelManual.classList.add('hidden');
+      document.getElementById('mode-indicator').innerText = '內網 P2P 模式';
+    });
+
+    tabManual.addEventListener('click', () => {
+      currentMode = 'manual';
+      tabManual.classList.add('active');
+      tabAuto.classList.remove('active');
+      panelManual.classList.remove('hidden');
+      panelAuto.classList.add('hidden');
+      document.getElementById('mode-indicator').innerText = '手動免伺服器';
+    });
+
+    // 側邊選單與設定彈出視窗
+    document.getElementById('settings-btn').addEventListener('click', () => {
+      settingsModal.classList.remove('hidden');
+    });
+
+    document.getElementById('settings-modal').addEventListener('click', (e) => {
+      if (e.target === settingsModal) {
+        settingsModal.classList.add('hidden');
+      }
+    });
+
+    document.getElementById('btn-save-settings').addEventListener('click', () => {
+      saveConfig();
+      settingsModal.classList.add('hidden');
+    });
+
+    // 底部抽屜控制
+    document.getElementById('btn-more-options').addEventListener('click', () => {
+      optionsPanel.classList.remove('hidden');
+      setTimeout(() => {
+        optionsContent.classList.add('open');
+      }, 50);
+    });
+
+    document.getElementById('close-options-btn').addEventListener('click', closeDrawerMenu);
+    
+    optionsPanel.addEventListener('click', (e) => {
+      if (e.target === optionsPanel) closeDrawerMenu();
+    });
+
+    function closeDrawerMenu() {
+      optionsContent.classList.remove('open');
+      setTimeout(() => {
+        optionsPanel.classList.add('hidden');
+      }, 300);
+    }
+
+    // 配置讀取與寫入
+    function loadConfig() {
+      const saved = localStorage.getItem('facetime_local_single_cfg');
+      if (saved) {
+        try {
+          currentConfig = JSON.parse(saved);
+        } catch (e) {
+          currentConfig = { ...DEFAULT_CONFIG };
+        }
+      }
+      document.getElementById('cfg-host').value = currentConfig.host;
+      document.getElementById('cfg-port').value = currentConfig.port;
+      document.getElementById('cfg-secure').checked = currentConfig.secure;
+    }
+
+    function saveConfig() {
+      currentConfig.host = document.getElementById('cfg-host').value.trim() || '127.0.0.1';
+      currentConfig.port = parseInt(document.getElementById('cfg-port').value) || 8080;
+      currentConfig.secure = document.getElementById('cfg-secure').checked;
+
+      localStorage.setItem('facetime_local_single_cfg', JSON.stringify(currentConfig));
+      showToast('本地配置已儲存！');
+      initNativeSignaling();
+    }
+
+    // 剪貼簿相容複製功能 (解決內網可能不安全時 navigator.clipboard 被瀏覽器停用問題)
+    function copyToClipboard(text) {
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(text).catch(err => {
+          fallbackCopy(text);
+        });
+      } else {
+        fallbackCopy(text);
+      }
+    }
+
+    function fallbackCopy(text) {
+      const el = document.createElement('textarea');
+      el.value = text;
+      el.setAttribute('readonly', '');
+      el.style.position = 'absolute';
+      el.style.left = '-9999px';
+      document.body.appendChild(el);
+      el.select();
+      document.execCommand('copy');
+      document.body.removeChild(el);
+    }
+
+    // 複製自己的帳號 ID
+    document.getElementById('copy-id-btn').addEventListener('click', () => {
+      copyToClipboard(myId);
+      showToast('您的 ID 已複製到剪貼簿！');
+    });
+  </script>
+</body>
+</html>
