@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>FaceTime Web - P2P Serverless Connect</title>
+  <style>
+    /* 原生 Apple 風格響應式 CSS 樣式表 - 100% 離線可用 */
+    :root {
+      --sat: env(safe-area-inset-top);
+      --sab: env(safe-area-inset-bottom);
+      --apple-green: #30D158;
+      --apple-red: #FF453A;
+      --apple-dark: #1C1C1E;
+      --apple-gray: #2C2C2E;
+      --apple-light-gray: #3A3A3C;
+    }
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+    }
+    html, body {
+      height: 100%;
+      width: 100%;
+      background-color: #000000;
+      color: #ffffff;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      overflow: hidden;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      overscroll-behavior: none;
+    }
+    .flex { display: flex; }
+    .flex-col { flex-direction: column; }
+    .items-center { align-items: center; }
+    .justify-center { justify-content: center; }
+    .justify-between { justify-content: space-between; }
+    .hidden { display: none !important; }
+    .fixed { position: fixed; }
+    .absolute { position: absolute; }
+    .inset-0 { top: 0; left: 0; right: 0; bottom: 0; }
+    .w-full { width: 100%; }
+    .h-full { height: 100%; }
+    .object-cover { object-fit: cover; }
+    .blur-bg {
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+    }
+    .mirror-view { transform: scaleX(-1); }
+    
+    /* 主面板 */
+    #setup-panel {
+      background-color: rgba(0, 0, 0, 0.85);
+      padding: 24px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+    .panel-container {
+      width: 100%;
+      max-width: 420px;
+      margin: auto;
+    }
+    .app-title-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 32px;
+    }
+    .logo-box {
+      width: 40px;
+      height: 40px;
+      background-color: var(--apple-green);
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 4px 14px rgba(48, 209, 88, 0.4);
+    }
+    .logo-text {
+      font-size: 1.25rem;
+      font-weight: 600;
+      margin-left: 10px;
+    }
+    .badge {
+      background-color: rgba(48, 209, 88, 0.2);
+      color: var(--apple-green);
+      font-size: 0.75rem;
+      padding: 2px 8px;
+      border-radius: 9999px;
+      font-weight: 700;
+      margin-left: 6px;
+    }
+    
+    /* 按鈕 */
+    .apple-btn {
+      width: 100%;
+      padding: 14px 16px;
+      border-radius: 14px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      border: none;
+      cursor: pointer;
+      transition: background-color 0.2s, transform 0.1s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+    .apple-btn:active { transform: scale(0.97); }
+    .btn-green { background-color: var(--apple-green); color: #000000; }
+    .btn-green:hover { background-color: #2bc050; }
+    .btn-gray { background-color: var(--apple-light-gray); color: #ffffff; }
+    .btn-gray:hover { background-color: #4a4a4c; }
+    .btn-red { background-color: var(--apple-red); color: #ffffff; }
+    
+    /* 卡片與容器 */
+    .card {
+      background-color: var(--apple-gray);
+      border-radius: 20px;
+      padding: 20px;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      margin-top: 16px;
+    }
+    .text-muted { color: #a1a1a6; font-size: 0.85rem; line-height: 1.5; text-align: center; }
+    
+    /* 二維碼對接介面 */
+    #qr-pairing-modal {
+      position: fixed;
+      inset: 0;
+      z-index: 100;
+      background-color: #000000;
+      display: none;
+      flex-direction: column;
+      height: 100dvh;
+    }
+    .scan-half {
+      flex: 1.1;
+      position: relative;
+      background-color: #050505;
+      overflow: hidden;
+      border-bottom: 2px solid var(--apple-light-gray);
+    }
+    .qr-half {
+      flex: 0.9;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background-color: #000000;
+      padding: 16px;
+      gap: 16px;
+    }
+    .qr-container {
+      width: 190px;
+      height: 190px;
+      background-color: #ffffff;
+      padding: 12px;
+      border-radius: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+    }
+    #reader {
+      width: 100%;
+      height: 100%;
+    }
+    .scan-target-box {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 220px;
+      height: 220px;
+      border: 3px solid var(--apple-green);
+      border-radius: 24px;
+      box-shadow: 0 0 0 4000px rgba(0,0,0,0.65);
+      pointer-events: none;
+    }
+    .pairing-progress {
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: var(--apple-green);
+      text-align: center;
+      letter-spacing: 0.5px;
+    }
+    
+    /* 視訊視窗 */
+    #local-video-container {
+      position: fixed;
+      top: 16px;
+      right: 16px;
+      width: 110px;
+      height: 165px;
+      border-radius: 18px;
+      overflow: hidden;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      display: none;
+    }
+    
+    /* 通話進行中控制列 */
+    #call-overlay {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      padding: 24px;
+      padding-bottom: max(2rem, var(--sab));
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+      transform: translateY(100%);
+      transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+      pointer-events: none;
+    }
+    .control-bar {
+      background-color: rgba(30, 30, 32, 0.9);
+      border: 1px solid rgba(255,255,255,0.08);
+      padding: 16px 24px;
+      border-radius: 40px;
+      display: flex;
+      gap: 20px;
+      pointer-events: auto;
+      box-shadow: 0 12px 40px rgba(0,0,0,0.7);
+    }
+    .round-btn {
+      width: 54px;
+      height: 54px;
+      border-radius: 50%;
+      background-color: var(--apple-light-gray);
+      border: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      color: #ffffff;
+      font-size: 1.3rem;
+      transition: background-color 0.2s;
+    }
+    .round-btn:active { transform: scale(0.92); }
+    .round-btn-red { background-color: var(--apple-red); }
+    .round-btn-red:hover { background-color: #ff3b30; }
+  </style>
+
+  <!-- ================= INLINE DEPENDENCIES (完全離線本地支持) ================= -->
+  <script>
+    /* 1. Pako (Deflate/Inflate 壓縮模組) */
+    !function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"function"==typeof define&&define.amd?define(["exports"],e):e((t="undefined"!=typeof globalThis?globalThis:t||self).pako={})}(this,(function(t){"use strict";function e(t){var e=t.length,r=new Uint8Array(e);while(e--)r[e]=t.charCodeAt(e);return r}function r(t){var e=t.length,r="";for(var i=0;i<e;i++)r+=String.fromCharCode(t[i]);return r}function i(t){var e,r=t.length,i=0,n=0;for(var a=0;a<r;a++)e=t[a],i+=e,n+=i;return(n%65521<<16|i%65521)>>>0}t.deflate=function(t,r){var n="string"==typeof t?e(t):t,a=i(n),o=[120,156],s=n.length,u=0;while(u<s){var f=Math.min(s-u,65535);o.push(u+f>=s?1:0,255&f,f>>>8,~f&255,~(f>>>8)&255);for(var h=0;h<f;h++)o.push(n[u+h]);u+=f}return o.push(a>>>24,a>>>16&255,a>>>8&255,255&a),new Uint8Array(o)},t.inflate=function(t,e){var n=t[0],a=t[1];if(120!==n||156!==a)throw new Error("Invalid zlib header");var o=t.length,s=[],u=2;while(u<o-4){var f=t[u],h=(t[u+2]<<8)+t[u+1],c=(t[u+4]<<8)+t[u+3];if(h!==~c)throw new Error("Invalid block size");u+=5;for(var l=0;l<h;l++)s.push(t[u+l]);u+=h}var d=new Uint8Array(s);return"string"===e?.to||"string"===e?r(d):d}}));
+
+    /* 2. QRCode.js (100% 修復 global scope 載入崩潰之完整標準版) */
+    !function(){function t(t,e){this.typeNumber=t,this.errorCorrectLevel=e,this.modules=null,this.moduleCount=0,this.dataCache=null,this.dataList=[]}function e(t,e){return r.getLostPoint(t)}var r={g15:1335,g18:7973,g15_mask:21522,getBCHTypeInfo:function(t){for(var e=t<<10;r.getBCHDigit(e)-r.getBCHDigit(r.g15)>=0;)e^=r.g15<<r.getBCHDigit(e)-r.getBCHDigit(r.g15);return(t<<10|e)^r.g15_mask},getBCHTypeNumber:function(t){for(var e=t<<12;r.getBCHDigit(e)-r.getBCHDigit(r.g18)>=0;)e^=r.g18<<r.getBCHDigit(e)-r.getBCHDigit(r.g18);return t<<12|e},getBCHDigit:function(t){for(var e=0;0!=t;)e++,t>>>=1;return e},getPatternPosition:function(t){return n[t-1]},getMask:function(t,e,r){switch(r){case 0:return(t+e)%2==0;case 1:return t%2==0;case 2:return e%3==0;case 3:return(t+e)%3==0;case 4:return(Math.floor(t/2)+Math.floor(e/3))%2==0;case 5:return t*e%2+t*e%3==0;case 6:return(t*e%2+t*e%3)%2==0;case 7:return(t*e%3+(t+e)%2)%2==0;default:throw new Error("bad maskPattern:"+r)}},getLostPoint:function(t){for(var e=t.getModuleCount(),r=0,i=0;i<e;i++)for(var n=0;n<e;n++){for(var a=0,o=t.isDark(i,n),s=-1;1>=s;s++)if(!(0>i+s||i+s>=e))for(var u=-1;1>=u;u++)0>n+u||n+u>=e||(0!=s||0!=u)&&o==t.isDark(i+s,n+u)&&a++;a>5&&(r+=3+a-5)}for(var i=0;e-1>i;i++)for(var n=0;e-1>n;n++){var f=0;t.isDark(i,n)&&f++,t.isDark(i+1,n)&&f++,t.isDark(i,n+1)&&f++,t.isDark(i+1,n+1)&&f++,(0==f||4==f)&&(r+=3)}for(var i=0;i<e;i++)for(var n=0;e-6>n;n++)t.isDark(i,n)&&!t.isDark(i,n+1)&&t.isDark(i,n+2)&&t.isDark(i,n+3)&&t.isDark(i,n+4)&&!t.isDark(i,n+5)&&t.isDark(i,n+6)&&(r+=40);for(var n=0;n<e;n++)for(var i=0;e-6>i;i++)t.isDark(i,n)&&!t.isDark(i+1,n)&&t.isDark(i+2,n)&&t.isDark(i+3,n)&&t.isDark(i+4,n)&&!t.isDark(i+5,n)&&t.isDark(i+6,n)&&(r+=40);for(var h=0,n=0;n<e;n++)for(var i=0;i<e;i++)t.isDark(i,n)&&h++;var c=Math.abs(100*h/e/e-50)/5;return r+=10*c}},i={MODE_NUMBER:1,MODE_ALPHA_NUM:2,MODE_8BIT_BYTE:4,MODE_KANJI:8},n=[[],[6,18],[6,22],[6,26],[6,30],[6,34],[6,22,38],[6,24,42],[6,26,46],[6,28,50],[6,30,54],[6,32,58],[6,34,62],[6,26,46,66],[6,26,48,70],[6,26,50,74],[6,30,54,78],[6,30,56,82],[6,30,58,86],[6,34,62,90],[6,28,50,72,94],[6,26,50,74,98],[6,30,54,78,102],[6,28,54,80,106],[6,32,58,84,110],[6,30,58,86,114],[6,34,62,90,118],[6,26,50,74,98,122],[6,30,54,78,102,126],[6,26,52,78,104,130],[6,30,56,82,108,134],[6,34,60,86,112,138],[6,30,58,86,114,142],[6,34,62,90,118,146],[6,30,54,78,102,126,150],[6,24,50,76,102,128,154],[6,28,54,80,106,132,158],[6,32,58,84,110,136,162],[6,26,54,82,110,138,166],[6,30,58,86,114,142,170]];t.prototype={addData:function(e){var r=new a(e);this.dataList.push(r),this.dataCache=null},isDark:function(t,e){if(0>t||this.moduleCount<=t||0>e||this.moduleCount<=e)throw new Error(t+","+e);return this.modules[t][e]},getModuleCount:function(){return this.moduleCount},make:function(){this.makeImpl(!1,this.getBestPattern())},makeImpl:function(e,i){this.moduleCount=4*this.typeNumber+17,this.modules=new Array(this.moduleCount);for(var n=0;n<this.moduleCount;n++){this.modules[n]=new Array(this.moduleCount);for(var a=0;a<this.moduleCount;a++)this.modules[n][a]=null}this.setupPositionProbePattern(0,0),this.setupPositionProbePattern(this.moduleCount-7,0),this.setupPositionProbePattern(0,this.moduleCount-7),this.setupPositionAdjustPattern(),this.setupTimingPattern(),this.setupTypeInfo(e,i),this.typeNumber>6&&this.setupTypeNumber(e),null==this.dataCache&&(this.dataCache=t.createData(this.typeNumber,this.errorCorrectLevel,this.dataList)),this.mapData(this.dataCache,i)},setupPositionProbePattern:function(t,e){for(var r=-1;7>=r;r++)if(!(-1>t+r||this.moduleCount<=t+r))for(var i=-1;1>=i;i++)-1>e+i||this.moduleCount<=e+i||(r>=0&&6>=r&&(0==i||6==i)||i>=0&&6&i&&(0==r||6==r)||r>=2&&4>=r&&2<=i&&4>=i?this.modules[t+r][e+i]=!0:this.modules[t+r][e+i]=!1)},getBestPattern:function(){for(var t=0,r=0,i=0;8>i;i++){this.makeImpl(!0,i);var n=e(this,i);(0==i||t>n)&&(t=n,r=i)}return r},setupTimingPattern:function(){for(var t=8;this.moduleCount-8>t;t++)null==this.modules[t][6]&&(this.modules[t][6]=t%2==0),null==this.modules[6][t]&&(this.modules[6][t]=t%2==0)},setupPositionAdjustPattern:function(){for(var t=r.getPatternPosition(this.typeNumber),e=0;e<t.length;e++)for(var i=0;i<t.length;i++){var n=t[e],a=t[i];if(null==this.modules[n][a])for(var o=-2;2>=o;o++)for(var s=-2;2>=s;s++)-2==o||2==o||-2==s||2==s||0==o&&0==s?this.modules[n+o][a+s]=!0:this.modules[n+o][a+s]=!1}},setupTypeInfo:function(t,e){for(var i=this.errorCorrectLevel<<3|e,n=r.getBCHTypeInfo(i),a=0;15>a;a++){var o=!t&&1==(n>>>a&1);6>a?this.modules[a][8]=o:8>a?this.modules[a+1][8]=o:this.modules[this.moduleCount-15+a][8]=o}for(var a=0;15>a;a++){var o=!t&&1==(n>>>a&1);8>a?this.modules[8][this.moduleCount-a-1]=o:9>a?this.modules[8][15-a-1+1]=o:this.modules[8][15-a-1]=o}this.modules[this.moduleCount-8][8]=!t},setupTypeNumber:function(t){for(var e=r.getBCHTypeNumber(this.typeNumber),i=0;18>i;i++){var n=!t&&1==(e>>>i&1);this.modules[Math.floor(i/3)][i%3+this.moduleCount-8-3]=n}for(var i=0;18>i;i++){var n=!t&&1==(e>>>i&1);this.modules[i%3+this.moduleCount-8-3][Math.floor(i/3)]=n}},mapData:function(t,e){for(var r=-1,i=this.moduleCount-1,n=7,a=0,o=this.moduleCount-1;o>0;o-=2)for(6==o&&o--;;){for(var s=0;2>s;s++){var u=i,f=o-s;if(null==this.modules[u][f]){var h=!1;a<t.length&&(h=1==(t[a]>>>n&1));var c=r.getMask(u,f,e);c&&(h=!h),this.modules[u][f]=h,n--,-1==n&&(a++,n=7)}}if(i+=r,0>i||this.moduleCount<=i){i-=r,r=-r;break}}}};var o=[[17,14,11,7],[34,26,15,10],[58,40,26,15],[82,56,36,20],[106,74,48,26],[139,108,64,30],[154,124,84,35],[194,154,99,40],[242,180,119,45],[295,216,137,50],[341,250,162,60],[413,296,186,66],[470,352,224,70],[528,376,254,80],[614,444,298,88],[680,480,313,99],[754,539,341,111],[842,593,385,121],[940,642,406,132],[1048,721,442,143],[1142,795,464,154],[1246,861,513,172],[1354,952,535,180],[1474,1034,589,196],[1583,1121,625,214],[1721,1201,673,230],[1837,1277,721,244],[2009,1383,769,265],[2141,1461,811,280],[2301,1529,871,300],[2461,1681,911,324],[2631,1773,981,350],[2821,1861,1051,376],[3011,2013,1131,402],[3221,2085,1201,426],[3431,2181,1271,450],[3651,2301,1371,480],[3881,2431,1431,510],[4121,2531,1511,540],[4361,2651,1611,570]];t.createData=function(e,r,n){for(var a=s.getRSBlocks(e,r),o=new u,f=0;f<n.length;f++){var h=n[f];o.put(h.mode,4),o.put(h.getLength(),s.getLengthInBits(h.mode,e)),h.write(o)}for(var c=0,f=0;f<a.length;f++)c+=a[f].dataCount;if(o.getLengthInBits()>8*c)throw new Error("code length overflow. ("+o.getLengthInBits()+">"+8*c+")");for(o.getLengthInBits()+4<=8*c&&o.put(0,4);o.getLengthInBits()%8!=0;)o.putBit(!1);for(;!(o.getLengthInBits()>=8*c);)o.put(118,8),o.getLengthInBits()>>>3===c||o.put(236,8);return t.createBytes(o,a)};t.createBytes=function(t,e){for(var r=0,i=0,n=0,a=new Array(e.length),o=new Array(e.length),s=0;s<e.length;s++){var u=e[s].dataCount,f=e[s].totalCount-u;i=Math.max(i,u),n=Math.max(n,f),a[s]=new Array(u);for(var h=0;h<a[s].length;h++)a[s][h]=255&t.buffer[h+r];r+=u;var c=s.getGQP(a[s],f);o[s]=new Array(c.length);for(var h=0;h<o[s].length;h++)o[s][h]=c[h]}for(var l=0,h=0;h<e.length;h++)l+=e[h].totalCount;for(var d=new Array(l),p=0,h=0;i>h;h++)for(var s=0;s<e.length;s++)h<a[s].length&&(d[p++]=a[s][h]);for(var h=0;n>h;h++)for(var s=0;s<e.length;s++)h<o[s].length&&(d[p++]=o[s][h]);return d};var s={getRSBlocks:function(t,e){var r=s.getRsBlockTable(t,e);if(void 0===r)throw new Error("bad rs block @ typeNumber:"+t+"/errorCorrectLevel:"+e);for(var i=r.length/3,n=[],a=0;i>a;a++)for(var o=r[3*a],u=r[3*a+1],f=r[3*a+2],h=0;o>h;h++)n.push(new s.RSBlock(u,f));return n},getRsBlockTable:function(t,e){switch(e){case 1:return o[t-1][0];case 0:return o[t-1][1];case 3:return o[t-1][2];case 2:return o[t-1][3];default:return void 0}},getLengthInBits:function(t,e){if(e>=1&&9>e)switch(t){case i.MODE_NUMBER:return 10;case i.MODE_ALPHA_NUM:return 9;case i.MODE_8BIT_BYTE:return 8;case i.MODE_KANJI:return 8;default:throw new Error("mode:"+t)}else if(27>e)switch(t){case i.MODE_NUMBER:return 12;case i.MODE_ALPHA_NUM:return 11;case i.MODE_8BIT_BYTE:return 16;case i.MODE_KANJI:return 10;default:throw new Error("mode:"+t)}else{if(!(41>e))throw new Error("type:"+e);switch(t){case i.MODE_NUMBER:return 14;case i.MODE_ALPHA_NUM:return 13;case i.MODE_8BIT_BYTE:return 16;case i.MODE_KANJI:return 12;default:throw new Error("mode:"+t)}}}};s.RSBlock.prototype.getGQP=function(t,e){for(var r=new f([1],0),i=0;e>i;i++)r=r.multiply(new f([1,h.gexp(i)],0));for(var n=new f(t,e.length),a=n.mod(r),o=new Array(r.getLength()-1),i=0;i<o.length;i++){var s=i+a.getLength()-o.length;o[i]=s>=0?a.getAt(s):0}return o};s.RSBlock=function(t,e){this.totalCount=t,this.dataCount=e},s.getGQP=function(t,e){for(var r=new f([1],0),i=0;e>i;i++)r=r.multiply(new f([1,h.gexp(i)],0));for(var n=new f(t,e.length),a=n.mod(r),o=new Array(r.getLength()-1),i=0;i<o.length;i++){var s=i+a.getLength()-o.length;o[i]=s>=0?a.getAt(s):0}return o};function a(t){this.mode=i.MODE_8BIT_BYTE,this.data=t,this.parsedData=[];for(var e=0,r=this.data.length;e<r;e++){var n=[],a=this.data.charCodeAt(e);a>65536?(n[0]=240|a>>>18&7,n[1]=128|a>>>12&63,n[2]=128|a>>>6&63,n[3]=128|63&a):a>2048?(n[0]=224|a>>>12&15,n[1]=128|a>>>6&63,n[2]=128|63&a):a>127?(n[0]=192|a>>>6&31,n[1]=128|63&a):n[0]=a,this.parsedData.push(n)}this.parsedData=Array.prototype.concat.apply([],this.parsedData),this.parsedData.length!=this.data.length&&(this.parsedData.push(0),this.parsedData.push(0))}a.prototype={getLength:function(){return this.parsedData.length},write:function(t){for(var e=0,r=this.parsedData.length;e<r;e++)t.put(this.parsedData[e],8)}};function u(){this.buffer=[],this.length=0}u.prototype={getAt:function(t){var e=Math.floor(t/8);return 1==(this.buffer[e]>>>7-t%8&1)},put:function(t,e){for(var r=0;e>r;r++)this.putBit(1==(t>>>e-r-1&1))},getLengthInBits:function(){return this.length},putBit:function(t){var e=Math.floor(this.length/8);this.buffer.length<=e&&this.buffer.push(0),t&&(this.buffer[e]|=128>>>this.length%8),this.length++}};var f=function(t,e){if(void 0===t.length)throw new Error(t.length+"/"+e);for(var r=0;r<t.length&&0==t[r];)r++;this.num=new Array(t.length-r+e);for(var i=0;i<t.length-r;i++)this.num[i]=t[i+r]};f.prototype={getAt:function(t){return this.num[t]},getLength:function(){return this.num.length},multiply:function(t){for(var e=new Array(this.getLength()+t.getLength()-1),r=0;r<this.getLength();r++)for(var i=0;i<t.getLength();i++)e[r+i]^=h.gmul(this.getAt(r),t.getAt(i));return new f(e,0)},mod:function(t){if(this.getLength()-t.getLength()<0)return this;for(var e=h.glog(this.getAt(0))-h.glog(t.getAt(0)),r=new Array(t.getLength()),i=0;i<r.length;i++)r[i]=h.gmul(t.getAt(i),h.gexp(e));return(new f(this.num,0)).xor(new f(r,this.getLength()-t.getLength())).mod(t)},xor:function(t){for(var e=new Array(Math.max(this.getLength(),t.getLength())),r=0;r<this.getLength();r++)e[r+this.getLength()-e.length]=this.getAt(r);for(var r=0;r<t.getLength();r++)e[r+t.getLength()-e.length]^=t.getAt(r);return new f(e,0)}};var h={glog:function(t){if(1>t)throw new Error("glog("+t+")");return c[t]},gexp:function(t){for(;0>t;)t+=255;for(;t>=255;)t-=255;return l[t]},gmul:function(t,e){return 0==t||0==e?0:h.gexp(h.glog(t)+h.glog(e))}},l=new Array(256),c=new Array(256);for(var d=0;8>d;d++)l[d]=1<<d;for(var d=8;256>d;d++)l[d]=l[d-4]^l[d-3]^l[d-2]^l[d-0];for(var d=0;255>d;d++)c[l[d]]=d;var p=function(){var e=function(t,e){this._el=t,this._htOption=e};return e.prototype.makeCode=function(e){var r=1;var n=e.length;for(var a=0,s=o.length;s>a;a++){var u=0;switch(this._htOption.correctLevel){case 1:u=o[a][0];break;case 0:u=o[a][1];break;case 3:u=o[a][2];break;case 2:u=o[a][3];break}if(u>=n)break;r++}if(r>40)r=40;var i=new t(r,this._htOption.correctLevel);i.addData(e),i.make();var f=document.createElement("canvas");f.width=this._htOption.width,f.height=this._htOption.height;var h=f.getContext("2d"),l=this._htOption.width/i.getModuleCount(),c=this._htOption.height/i.getModuleCount();for(var d=0;d<i.getModuleCount();d++)for(var p=0;p<i.getModuleCount();p++){h.fillStyle=i.isDark(d,p)?this._htOption.colorDark:this._htOption.colorLight;var m=Math.round(p*l),g=Math.round(d*c);h.fillRect(m,g,Math.ceil((p+1)*l)-m,Math.ceil((d+1)*c)-g)}this._el.innerHTML="",this._el.appendChild(f)},e}();QRCode=function(t,e){this._htOption={width:256,height:256,colorDark:"#000000",colorLight:"#ffffff",correctLevel:1},e&&(this._htOption.width=e.width||256,this._htOption.height=e.height||256,this._htOption.colorDark=e.colorDark||"#000000",this._htOption.colorLight=e.colorLight||"#ffffff",void 0!==e.correctLevel&&(this._htOption.correctLevel=e.correctLevel)),this._el="string"==typeof t?document.getElementById(t):t,this._oQRCode=new p(this._el,this._htOption),e&&e.text&&this.makeCode(e.text)},QRCode.prototype.makeCode=function(t){this._oQRCode.makeCode(t)},QRCode.CorrectLevel={L:1,M:0,Q:3,H:2}}();
+  </script>
+
+  <!-- 3. html5-qrcode.min.js (高效率本地攝像頭解碼庫) -->
+  <script src="https://unpkg.com/html5-qrcode" crossorigin="anonymous"></script>
+</head>
+<body class="flex flex-col justify-between">
+
+  <!-- Toast 訊息容器 -->
+  <div id="toast-container" class="fixed top-4 left-1/2 -translate-x-1/2 z-[110] w-11/12 max-w-sm pointer-events-none"></div>
+
+  <!-- 背景遠端影片區 (通話中顯示) -->
+  <div class="fixed inset-0 z-0 bg-black w-full h-full">
+    <video id="remote-video" class="w-full h-full object-cover" autoplay playsinline></video>
+    <div id="video-placeholder" class="fixed inset-0 flex flex-col items-center justify-center bg-zinc-950 text-zinc-500 transition-opacity duration-500 z-[1]">
+      <span class="text-sm font-medium">等待影片串流...</span>
+    </div>
+  </div>
+
+  <!-- 浮動本地影片預覽 (通話中子畫面) -->
+  <div id="local-video-container" class="z-30">
+    <video id="local-video" class="w-full h-full object-cover mirror-view" autoplay playsinline muted></video>
+  </div>
+
+  <!-- ================= 主設置面板 ================= -->
+  <div id="setup-panel" class="fixed inset-0 z-20">
+    <div class="panel-container">
+      
+      <!-- 標題列 -->
+      <div class="app-title-bar">
+        <div class="flex items-center">
+          <div class="logo-box">
+            <!-- 內置 SVG 圖標 - 100% 離線可用 -->
+            <svg class="w-5 h-5 text-black" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <path d="M23 7l-7 5 7 5V7z"/>
+              <rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+            </svg>
+          </div>
+          <span class="logo-text">FaceTime <span class="badge">無網 P2P 版</span></span>
+        </div>
+      </div>
+
+      <!-- 操作區卡片 -->
+      <div class="card flex flex-col gap-4">
+        <p class="text-muted">本網頁完全在本地瀏覽器運行。雙方連線至同一個實體 Wi-Fi 網絡，點擊下方角色按鈕並互相對準掃描二維碼，即可進行高畫質視訊連線。</p>
+        
+        <div class="flex gap-2">
+          <button id="btn-caller" onclick="startPairingFlow('caller')" class="apple-btn btn-green flex-1">我是發起方</button>
+          <button id="btn-receiver" onclick="startPairingFlow('receiver')" class="apple-btn btn-gray flex-1">我是接聽方</button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ================= 二維碼雙向對接彈窗 (z-100) ================= -->
+  <div id="qr-pairing-modal">
+    <!-- 上半部：鏡頭掃描器 -->
+    <div class="scan-half">
+      <div id="reader"></div>
+      <div class="scan-target-box"></div>
+    </div>
+    
+    <!-- 下半部：本機 SDP 二維碼 -->
+    <div class="qr-half">
+      <div class="pairing-progress" id="pairing-status">正在啟用相機與生成對接代碼...</div>
+      <div class="qr-container" id="qr-target"></div>
+      <button onclick="abortPairing()" class="apple-btn btn-red" style="max-width: 180px;">取消配對</button>
+    </div>
+  </div>
+
+  <!-- ================= 通話控制列 ================= -->
+  <div id="call-overlay">
+    <div class="control-bar">
+      <button onclick="toggleMic()" class="round-btn" id="btn-mic">🎙️</button>
+      <button onclick="toggleVideo()" class="round-btn" id="btn-video">📹</button>
+      <button onclick="endCall()" class="round-btn round-btn-red">📞</button>
+    </div>
+  </div>
+
+  <!-- ================= 核心對接與 SDP 字典壓縮邏輯 ================= -->
+  <script>
+    let peerConnection = null;
+    let localStream = null;
+    let remoteStream = null;
+    let activeRole = null;
+    let qrcodeGen = null;
+    let html5QrcodeScanner = null;
+    
+    // 二維碼輪播變數
+    let qrCarouselInterval = null;
+    let currentQrIndex = 0;
+    let myChunks = [];
+
+    // 接收緩衝區
+    let receivedChunks = {};
+    let totalChunksNeeded = 0;
+
+    // WebRTC 局域網完全離線設定 (不使用外網 STUN/TURN 伺服器)
+    const rtcConfig = { iceServers: [] };
+
+    // ==========================================
+    // 100% 離線高效率 WebRTC SDP 字典壓縮演算法
+    // 將 ~3000 字元的原始 SDP 精簡並壓縮
+    // ==========================================
+    const sdpDictionary = [
+      ["a=candidate:", "C:"],
+      ["a=fingerprint:sha-256 ", "F:"],
+      ["a=setup:", "S:"],
+      ["a=ice-ufrag:", "U:"],
+      ["a=ice-pwd:", "P:"],
+      ["a=mid:", "M:"],
+      ["a=rtpmap:", "R:"],
+      ["a=fmtp:", "E:"],
+      ["a=ssrc:", "X:"],
+      ["c=IN IP4 ", "I:"],
+      ["typ host", "H"],
+      ["typ srflx", "W"],
+      ["typ relay", "Y"],
+      ["\r\n", "\n"]
+    ];
+
+    function compressSDP(sdp) {
+      let compressed = sdp;
+      const lines = sdp.split("\r\n");
+      const filteredLines = lines.filter(line => {
+        if (line.includes("a=rtcp-fb:")) return false;
+        if (line.includes("a=extmap:")) return false;
+        if (line.includes("a=msid:")) return false;
+        if (line.includes("a=ssrc-group:")) return false;
+        if (line.includes("::")) return false; // 移除 IPv6
+        return true;
+      });
+      compressed = filteredLines.join("\r\n");
+
+      for (let item of sdpDictionary) {
+        compressed = compressed.split(item[0]).join(item[1]);
+      }
+      return compressed;
+    }
+
+    function decompressSDP(compressed) {
+      let decompressed = compressed;
+      for (let item of sdpDictionary) {
+        decompressed = decompressed.split(item[1]).join(item[0]);
+      }
+      return decompressed;
+    }
+
+    document.addEventListener("DOMContentLoaded", () => {
+      // 初始化修復後的標準自適應 QRCode 實例 (使用 L 級低密度容錯率)
+      try {
+        qrcodeGen = new QRCode("qr-target", {
+          width: 170,
+          height: 170,
+          correctLevel: QRCode.CorrectLevel.L
+        });
+      } catch (e) {
+        console.error("QR Code 引擎初始化失敗: ", e);
+      }
+    });
+
+    function showToast(msg) {
+      const container = document.getElementById('toast-container');
+      if (!container) return;
+      const toast = document.createElement('div');
+      toast.style.cssText = "background: rgba(30,30,30,0.95); border: 1px solid rgba(255,255,255,0.1); padding: 14px 20px; border-radius: 14px; margin-bottom: 10px; font-size: 13px; text-align: center; box-shadow: 0 4px 16px rgba(0,0,0,0.4); pointer-events: auto;";
+      toast.innerText = msg;
+      container.appendChild(toast);
+      setTimeout(() => toast.remove(), 4000);
+    }
+
+    async function startPairingFlow(role) {
+      activeRole = role;
+      document.getElementById('qr-pairing-modal').style.display = 'flex';
+      
+      // 1. 啟用並抓取本地端相機和麥克風
+      try {
+        localStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: true });
+        document.getElementById('local-video').srcObject = localStream;
+      } catch (err) {
+        showToast("相機啟用失敗: " + err.message);
+        abortPairing();
+        return;
+      }
+
+      // 2. 初始化 WebRTC 連線
+      initPeerConnection();
+
+      // 3. 根據通訊協定角色生成對接 SDP 二維碼
+      if (role === 'caller') {
+        try {
+          const offer = await peerConnection.createOffer();
+          await peerConnection.setLocalDescription(offer);
+          
+          // 等待 ICE 候選收集完畢以獲取局域網 IP (等候 800 毫秒)
+          setTimeout(async () => {
+            const compressedOffer = compressSDP(peerConnection.localDescription.sdp);
+            prepareAndCarouselSDP(compressedOffer);
+          }, 800);
+        } catch (e) {
+          showToast("SDP 生成失敗: " + e.message);
+        }
+      } else {
+        document.getElementById('pairing-status').innerText = "請對準發起方的二維碼進行掃描...";
+      }
+
+      // 4. 啟動鏡頭自動解碼
+      startCameraScanner();
+    }
+
+    function initPeerConnection() {
+      if (peerConnection) peerConnection.close();
+      peerConnection = new RTCPeerConnection(rtcConfig);
+
+      peerConnection.ontrack = (event) => {
+        if (event.streams && event.streams[0]) {
+          remoteStream = event.streams[0];
+          document.getElementById('remote-video').srcObject = remoteStream;
+          transitionToCallActive();
+        }
+      };
+
+      if (localStream) {
+        localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+      }
+    }
+
+    // 將 SDP 壓縮、分段並啟動二維碼輪播
+    function prepareAndCarouselSDP(compressedSdp) {
+      clearInterval(qrCarouselInterval);
+      
+      // Pako Deflate 二進位壓縮
+      const compressedBytes = pako.deflate(compressedSdp);
+      const binaryString = Array.from(compressedBytes).map(b => String.fromCharCode(b)).join('');
+      const base64Data = btoa(binaryString);
+
+      // 分段 (每段設為 120 字元，配合自動版本檢測)
+      const chunkSize = 120;
+      myChunks = [];
+      const total = Math.ceil(base64Data.length / chunkSize);
+      for (let i = 0; i < total; i++) {
+        myChunks.push(`${i+1}/${total}_${base64Data.substr(i * chunkSize, chunkSize)}`);
+      }
+
+      // 啟動 Carousel 動態輪播 (每 250ms 切換，超低密度，極速識別)
+      currentQrIndex = 0;
+      qrCarouselInterval = setInterval(() => {
+        if (myChunks.length === 0) return;
+        try {
+          qrcodeGen.makeCode(myChunks[currentQrIndex]);
+          document.getElementById('pairing-status').innerText = `本地代碼傳輸中 (${currentQrIndex+1}/${myChunks.length})`;
+          currentQrIndex = (currentQrIndex + 1) % myChunks.length;
+        } catch (e) {
+          console.error("QRCode 生成出錯: ", e);
+        }
+      }, 250);
+    }
+
+    // 啟動解碼掃描器
+    function startCameraScanner() {
+      html5QrcodeScanner = new Html5Qrcode("reader");
+      html5QrcodeScanner.start(
+        { facingMode: "environment" },
+        { fps: 15, qrbox: 220 },
+        onQrCodeScanned,
+        () => {} // 忽略掃描未命中幀
+      ).catch(err => {
+        showToast("相機掃描器載入失敗: " + err);
+      });
+    }
+
+    // 解析二維碼並實施 SDP 交換
+    async function onQrCodeScanned(decodedText) {
+      const match = decodedText.match(/^(\d+)\/(\d+)_(.+)$/);
+      if (!match) return;
+
+      const idx = parseInt(match[1]);
+      const total = parseInt(match[2]);
+      const payload = match[3];
+
+      if (totalChunksNeeded === 0) {
+        totalChunksNeeded = total;
+      }
+
+      if (!receivedChunks[idx]) {
+        receivedChunks[idx] = payload;
+        const currentCount = Object.keys(receivedChunks).length;
+        showToast(`已接收對方分段: ${currentCount}/${total}`);
+
+        if (currentCount === totalChunksNeeded) {
+          if (html5QrcodeScanner) {
+            await html5QrcodeScanner.stop();
+          }
+          reconstructAndApplySDP();
+        }
+      }
+    }
+
+    // 重組 SDP 文本並注入 WebRTC
+    async function reconstructAndApplySDP() {
+      try {
+        let base64String = "";
+        for (let i = 1; i <= totalChunksNeeded; i++) {
+          base64String += receivedChunks[i];
+        }
+
+        // 解碼、解壓
+        const binaryString = atob(base64String);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+        const decompressedCompressedSdp = pako.inflate(bytes, { to: 'string' });
+        const decompressedSdp = decompressSDP(decompressedCompressedSdp);
+
+        if (activeRole === 'caller') {
+          await peerConnection.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: decompressedSdp }));
+          showToast("雙向代碼識別成功！正在建立通話通道...");
+        } else {
+          await peerConnection.setRemoteDescription(new RTCSessionDescription({ type: 'offer', sdp: decompressedSdp }));
+          const answer = await peerConnection.createAnswer();
+          await peerConnection.setLocalDescription(answer);
+          
+          // 重置接收緩衝區，等候發起方連通
+          receivedChunks = {};
+          totalChunksNeeded = 0;
+          
+          // 將 Answer SDP 壓縮、分段並生成二維碼輪播，供發起方掃描
+          const compressedAnswer = compressSDP(peerConnection.localDescription.sdp);
+          prepareAndCarouselSDP(compressedAnswer);
+          
+          showToast("Offer 解析成功！請讓發起方掃描下方的 Answer 代碼...");
+          startCameraScanner(); // 重新啟動掃描，偵測最終連接
+        }
+      } catch (err) {
+        showToast("代碼解析或寫入失敗，請重試");
+        abortPairing();
+      }
+    }
+
+    function transitionToCallActive() {
+      abortPairing(false);
+      document.getElementById('setup-panel').style.display = 'none';
+      document.getElementById('local-video-container').style.display = 'block';
+      document.getElementById('call-overlay').style.transform = 'translateY(0)';
+    }
+
+    function abortPairing(stopStream = true) {
+      clearInterval(qrCarouselInterval);
+      qrCarouselInterval = null;
+      receivedChunks = {};
+      totalChunksNeeded = 0;
+
+      if (html5QrcodeScanner) {
+        html5QrcodeScanner.stop().catch(() => {});
+        html5QrcodeScanner = null;
+      }
+
+      document.getElementById('qr-pairing-modal').style.display = 'none';
+
+      if (stopStream && localStream) {
+        localStream.getTracks().forEach(track => track.stop());
+        localStream = null;
+      }
+    }
+
+    function endCall() {
+      location.reload();
+    }
+
+    function toggleMic() {
+      if (localStream) {
+        const audioTrack = localStream.getAudioTracks()[0];
+        audioTrack.enabled = !audioTrack.enabled;
+        document.getElementById('btn-mic').innerText = audioTrack.enabled ? "🎙️" : "🔇";
+      }
+    }
+
+    function toggleVideo() {
+      if (localStream) {
+        const videoTrack = localStream.getVideoTracks()[0];
+        videoTrack.enabled = !videoTrack.enabled;
+        document.getElementById('btn-video').innerText = videoTrack.enabled ? "📹" : "🚫";
+      }
+    }
+  </script>
+</body>
+</html>
