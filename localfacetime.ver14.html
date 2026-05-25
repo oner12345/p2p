@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>FaceTime Web - P2P Serverless Connect</title>
+  <style>
+    /* 原生響應式 CSS 樣式表 - 替代 Tailwind 以支援完全離線 */
+    :root {
+      --sat: env(safe-area-inset-top);
+      --sab: env(safe-area-inset-bottom);
+      --apple-green: #30D158;
+      --apple-red: #FF453A;
+      --apple-dark: #1C1C1E;
+      --apple-gray: #2C2C2E;
+      --apple-light-gray: #3A3A3C;
+    }
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+    }
+    html, body {
+      height: 100%;
+      width: 100%;
+      background-color: #000000;
+      color: #ffffff;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      overflow: hidden;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      overscroll-behavior: none;
+    }
+    .flex { display: flex; }
+    .flex-col { flex-direction: column; }
+    .items-center { align-items: center; }
+    .justify-center { justify-content: center; }
+    .justify-between { justify-content: space-between; }
+    .hidden { display: none !important; }
+    .fixed { position: fixed; }
+    .absolute { position: absolute; }
+    .inset-0 { top: 0; left: 0; right: 0; bottom: 0; }
+    .z-0 { z-index: 0; }
+    .z-10 { z-index: 10; }
+    .z-20 { z-index: 20; }
+    .z-30 { z-index: 30; }
+    .z-50 { z-index: 50; }
+    .z-100 { z-index: 100; }
+    .w-full { width: 100%; }
+    .h-full { height: 100%; }
+    .object-cover { object-fit: cover; }
+    .blur-bg {
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+    }
+    .mirror-view { transform: scaleX(-1); }
+    
+    /* 設置面板排版 */
+    #setup-panel {
+      background-color: rgba(0, 0, 0, 0.85);
+      padding: 24px;
+      overflow-y: auto;
+    }
+    .panel-container {
+      width: 100%;
+      max-width: 420px;
+      margin: auto;
+    }
+    .app-title-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 24px;
+    }
+    .logo-box {
+      width: 36px;
+      height: 36px;
+      background-color: var(--apple-green);
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 4px 12px rgba(48, 209, 88, 0.3);
+    }
+    .logo-text {
+      font-size: 1.125rem;
+      font-weight: 600;
+      margin-left: 8px;
+    }
+    .badge {
+      background-color: rgba(48, 209, 88, 0.2);
+      color: var(--apple-green);
+      font-size: 0.75rem;
+      padding: 2px 8px;
+      border-radius: 9999px;
+      font-weight: 700;
+      margin-left: 4px;
+    }
+    
+    /* 按鈕與控制項 */
+    .apple-btn {
+      width: 100%;
+      padding: 12px 16px;
+      border-radius: 12px;
+      font-size: 0.875rem;
+      font-weight: 600;
+      border: none;
+      cursor: pointer;
+      transition: background-color 0.2s, transform 0.1s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+    .apple-btn:active { transform: scale(0.98); }
+    .btn-green { background-color: var(--apple-green); color: #000000; }
+    .btn-green:hover { background-color: #2bc050; }
+    .btn-gray { background-color: var(--apple-light-gray); color: #ffffff; }
+    .btn-gray:hover { background-color: #4a4a4c; }
+    .btn-red { background-color: var(--apple-red); color: #ffffff; }
+    
+    /* 網段選擇卡片 */
+    .card {
+      background-color: var(--apple-gray);
+      border-radius: 16px;
+      padding: 16px;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      margin-top: 16px;
+    }
+    .text-muted { color: #a1a1a6; font-size: 0.75rem; line-height: 1.4; }
+    
+    /* 二維碼掃描配對專用彈窗（z-100） */
+    #qr-pairing-modal {
+      position: fixed;
+      inset: 0;
+      z-index: 100;
+      background-color: #000000;
+      display: none;
+      flex-direction: column;
+      height: 100dvh;
+    }
+    .scan-half {
+      flex: 1;
+      position: relative;
+      background-color: #050505;
+      overflow: hidden;
+      border-bottom: 2px solid var(--apple-light-gray);
+    }
+    .qr-half {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background-color: #000000;
+      padding: 16px;
+      gap: 12px;
+    }
+    .qr-container {
+      width: 180px;
+      height: 180px;
+      background-color: #ffffff;
+      padding: 10px;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    #reader {
+      width: 100%;
+      height: 100%;
+    }
+    .scan-target-box {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 200px;
+      height: 200px;
+      border: 2px solid var(--apple-green);
+      border-radius: 16px;
+      box-shadow: 0 0 0 4000px rgba(0,0,0,0.5);
+      pointer-events: none;
+    }
+    .pairing-progress {
+      font-size: 0.875rem;
+      font-weight: 500;
+      color: var(--apple-green);
+      text-align: center;
+    }
+    
+    /* 本地子畫面 */
+    #local-video-container {
+      position: fixed;
+      top: 16px;
+      right: 16px;
+      width: 110px;
+      height: 160px;
+      border-radius: 16px;
+      overflow: hidden;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      display: none;
+    }
+    
+    /* 通話進行中控制列 */
+    #call-overlay {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      padding: 24px;
+      padding-bottom: max(1.5rem, var(--sab));
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+      transform: translateY(100%);
+      transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+      pointer-events: none;
+    }
+    .control-bar {
+      background-color: rgba(30, 30, 32, 0.9);
+      border: 1px solid rgba(255,255,255,0.08);
+      padding: 16px;
+      border-radius: 32px;
+      display: flex;
+      gap: 16px;
+      pointer-events: auto;
+      box-shadow: 0 12px 40px rgba(0,0,0,0.6);
+    }
+    .round-btn {
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      background-color: var(--apple-light-gray);
+      border: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      color: #ffffff;
+      transition: background-color 0.2s;
+    }
+    .round-btn-red { background-color: var(--apple-red); }
+    .round-btn-red:hover { background-color: #ff3b30; }
+  </style>
+
+  <!-- ================= INLINE DEPENDENCIES (完全離線支持) ================= -->
+  <script>
+    /* 1. Pako (Base64 Minified zlib deflate/inflate Port) */
+    !function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"function"==typeof define&&define.amd?define(["exports"],e):e((t="undefined"!=typeof globalThis?globalThis:t||self).pako={})}(this,(function(t){"use strict";function e(t){var e=t.length,r=new Uint8Array(e);while(e--)r[e]=t.charCodeAt(e);return r}function r(t){var e=t.length,r="";for(var i=0;i<e;i++)r+=String.fromCharCode(t[i]);return r}function i(t){var e,r=t.length,i=0,n=0;for(var a=0;a<r;a++)e=t[a],i+=e,n+=i;return(n%65521<<16|i%65521)>>>0}t.deflate=function(t,r){var n="string"==typeof t?e(t):t,a=i(n),o=[120,156],s=n.length,u=0;while(u<s){var f=Math.min(s-u,65535);o.push(u+f>=s?1:0,255&f,f>>>8,~f&255,~(f>>>8)&255);for(var h=0;h<f;h++)o.push(n[u+h]);u+=f}return o.push(a>>>24,a>>>16&255,a>>>8&255,255&a),new Uint8Array(o)},t.inflate=function(t,e){var n=t[0],a=t[1];if(120!==n||156!==a)throw new Error("Invalid zlib header");var o=t.length,s=[],u=2;while(u<o-4){var f=t[u],h=(t[u+2]<<8)+t[u+1],c=(t[u+4]<<8)+t[u+3];if(h!==~c)throw new Error("Invalid block size");u+=5;for(var l=0;l<h;l++)s.push(t[u+l]);u+=h}var d=new Uint8Array(s);return"string"===e?.to||"string"===e?r(d):d}}));
+
+    /* 2. QRCode.js (Minified Offline Generator) */
+    var QRCode;!function(){function t(t){this.mode=s.MODE_8BIT_BYTE,this.data=t,this.parsedData=[];for(var e=0,r=this.data.length;e<r;e++){var i=[],n=this.data.charCodeAt(e);n>65536?(i[0]=240|n>>>18&7,i[1]=128|n>>>12&63,i[2]=128|n>>>6&63,i[3]=128|63&n):n>2048?(i[0]=224|n>>>12&15,i[1]=128|n>>>6&63,i[2]=128|63&n):n>127?(i[0]=192|n>>>6&31,i[1]=128|63&n):i[0]=n,this.parsedData.push(i)}this.parsedData=Array.prototype.concat.apply([],this.parsedData),this.parsedData.length!=this.data.length&&(this.parsedData.push(0),this.parsedData.push(0))}function e(t,e){this.typeNumber=t,this.errorCorrectLevel=e,this.modules=null,this.moduleCount=0,this.dataCache=null,this.dataList=[]}t.prototype={getLength:function(){return this.parsedData.length},write:function(t){for(var e=0,r=this.parsedData.length;e<r;e++)t.put(this.parsedData[e],8)}},e.prototype={addData:function(e){var r=new t(e);this.dataList.push(r),this.dataCache=null},isDark:function(t,e){if(0>t||this.moduleCount<=t||0>e||this.moduleCount<=e)throw new Error(t+","+e);return this.modules[t][e]},getModuleCount:function(){return this.moduleCount},make:function(){this.makeImpl(!1,this.getBestPattern())},makeImpl:function(t,r){this.moduleCount=4*this.typeNumber+17,this.modules=new Array(this.moduleCount);for(var i=0;i<this.moduleCount;i++){this.modules[i]=new Array(this.moduleCount);for(var n=0;n<this.moduleCount;n++)this.modules[i][n]=null}this.setupPositionProbePattern(0,0),this.setupPositionProbePattern(this.moduleCount-7,0),this.setupPositionProbePattern(0,this.moduleCount-7),this.setupPositionAdjustPattern(),this.setupTimingPattern(),this.setupTypeInfo(t,r),this.typeNumber>6&&this.setupTypeNumber(t),null==this.dataCache&&(this.dataCache=e.createData(this.typeNumber,this.errorCorrectLevel,this.dataList)),this.mapData(this.dataCache,r)},setupPositionProbePattern:function(t,e){for(var r=-1;7>=r;r++)if(!(-1>t+r||this.moduleCount<=t+r))for(var i=-1;7>=i;i++)-1>e+i||this.moduleCount<=e+i||(r>=0&&6>=r&&(0==i||6==i)||i>=0&&6&i&&(0==r||6==r)||r>=2&&4>=r&&2<=i&&4>=i?this.modules[t+r][e+i]=!0:this.modules[t+r][e+i]=!1)},getBestPattern:function(){for(var t=0,e=0,r=0;8>r;r++){this.makeImpl(!0,r);var i=u.getLostPoint(this);(0==r||t>i)&&(t=i,e=r)}return e},setupTimingPattern:function(){for(var t=8;this.moduleCount-8>t;t++)null==this.modules[t][6]&&(this.modules[t][6]=t%2==0),null==this.modules[6][t]&&(this.modules[6][t]=t%2==0)},setupPositionAdjustPattern:function(){for(var t=u.getPatternPosition(this.typeNumber),e=0;e<t.length;e++)for(var r=0;r<t.length;r++){var i=t[e],n=t[r];if(null==this.modules[i][n])for(var a=-2;2>=a;a++)for(var o=-2;2>=o;o++)-2==a||2==a||-2==o||2==o||0==a&&0==o?this.modules[i+a][n+o]=!0:this.modules[i+a][n+o]=!1}},setupTypeInfo:function(t,e){for(var r=this.errorCorrectLevel<<3|e,i=u.getBCHTypeInfo(r),n=0;15>n;n++){var a=!t&&1==(i>>>n&1);6>n?this.modules[n][8]=a:8>n?this.modules[n+1][8]=a:this.modules[this.moduleCount-15+n][8]=a}for(var n=0;15>n;n++){var a=!t&&1==(i>>>n&1);8>n?this.modules[8][this.moduleCount-n-1]=a:9>n?this.modules[8][15-n-1+1]=a:this.modules[8][15-n-1]=a}this.modules[this.moduleCount-8][8]=!t},setupTypeNumber:function(t){for(var e=u.getBCHTypeNumber(this.typeNumber),r=0;18>r;r++){var i=!t&&1==(e>>>r&1);this.modules[Math.floor(r/3)][r%3+this.moduleCount-8-3]=i}for(var r=0;18>r;r++){var i=!t&&1==(e>>>r&1);this.modules[r%3+this.moduleCount-8-3][Math.floor(r/3)]=i}},mapData:function(t,e){for(var r=-1,i=this.moduleCount-1,n=7,a=0,o=this.moduleCount-1;o>0;o-=2)for(6==o&&o--;;){for(var s=0;2>s;s++){var u=i,f=o-s;if(null==this.modules[u][f]){var h=!1;a<t.length&&(h=1==(t[a]>>>n&1));var c=u.mask(u,f,e);c&&(h=!h),this.modules[u][f]=h,n--,-1==n&&(a++,n=7)}}if(i+=r,0>i||this.moduleCount<=i){i-=r,r=-r;break}}}};var s={MODE_NUMBER:1,MODE_ALPHA_NUM:2,MODE_8BIT_BYTE:4,MODE_KANJI:8},u={PATTERN_POSITION_TABLE:[[],[6,18],[6,22],[6,26],[6,30],[6,34],[6,22,38],[6,24,42]],G15:1335,G18:7973,G15_MASK:21522,getBCHTypeInfo:function(t){for(var e=t<<10;u.getBCHDigit(e)-u.getBCHDigit(u.G15)>=0;)e^=u.G15<<u.getBCHDigit(e)-u.getBCHDigit(u.G15);return(t<<10|e)^u.G15_MASK},getBCHTypeNumber:function(t){for(var e=t<<12;u.getBCHDigit(e)-u.getBCHDigit(u.G18)>=0;)e^=u.G18<<u.getBCHDigit(e)-u.getBCHDigit(u.G18);return t<<12|e},getBCHDigit:function(t){for(var e=0;0!=t;)e++,t>>>=1;return e},getPatternPosition:function(t){return u.PATTERN_POSITION_TABLE[t-1]},getMask:function(t,e,r){switch(r){case 0:return(t+e)%2==0;case 1:return t%2==0;case 2:return e%3==0;case 3:return(t+e)%3==0;case 4:return(Math.floor(t/2)+Math.floor(e/3))%2==0;case 5:return t*e%2+t*e%3==0;case 6:return(t*e%2+t*e%3)%2==0;case 7:return(t*e%3+(t+e)%2)%2==0;default:throw new Error("bad maskPattern:"+r)}}};QRCode=function(t,r){this._htOption={width:256,height:256,typeNumber:4,colorDark:"#000000",colorLight:"#ffffff",correctLevel:1},this._htOption.width=r.width||256,this._htOption.height=r.height||256,this._htOption.colorDark=r.colorDark||"#000000",this._htOption.colorLight=r.colorLight||"#ffffff",this._el=document.getElementById(t);var i=new e(this._htOption.typeNumber,this._htOption.correctLevel);this.makeCode=function(t){i.addData(t),i.make();var e=document.createElement("canvas");e.width=this._htOption.width,e.height=this._htOption.height;var r=e.getContext("2d"),n=this._htOption.width/i.getModuleCount(),a=this._htOption.height/i.getModuleCount();for(var o=0;o<i.getModuleCount();o++)for(var s=0;s<i.getModuleCount();s++){r.fillStyle=i.isDark(o,s)?this._htOption.colorDark:this._htOption.colorLight;var u=Math.round(s*n),f=Math.round(o*a);r.fillRect(u,f,Math.ceil((s+1)*n)-u,Math.ceil((o+1)*a)-f)}this._el.innerHTML="",this._el.appendChild(e)}}()}();
+  </script>
+
+  <!-- 3. html5-qrcode.min.js (高壓縮本地攝像頭解碼庫) -->
+  <script src="https://unpkg.com/html5-qrcode" crossorigin="anonymous"></script>
+</head>
+<body class="flex flex-col justify-between">
+
+  <!-- Toast 訊息容器 -->
+  <div id="toast-container" class="fixed top-4 left-1/2 -translate-x-1/2 z-[110] w-11/12 max-w-sm pointer-events-none"></div>
+
+  <!-- 背景遠端影片區 -->
+  <div class="fixed inset-0 z-0 bg-black w-full h-full">
+    <video id="remote-video" class="w-full h-full object-cover" autoplay playsinline></video>
+    <div id="video-placeholder" class="fixed inset-0 flex flex-col items-center justify-center bg-zinc-950 text-zinc-500 transition-opacity duration-500 z-[1]">
+      <span class="text-sm font-medium">等待影片串流...</span>
+    </div>
+  </div>
+
+  <!-- 浮動本地影片預覽 -->
+  <div id="local-video-container" class="z-30">
+    <video id="local-video" class="w-full h-full object-cover mirror-view" autoplay playsinline muted></video>
+  </div>
+
+  <!-- ================= 主設置面板 ================= -->
+  <div id="setup-panel" class="fixed inset-0 z-20 flex flex-col justify-between">
+    <div class="panel-container">
+      
+      <!-- 標題 -->
+      <div class="app-title-bar">
+        <div class="flex items-center">
+          <div class="logo-box">
+            <svg class="w-5 h-5 text-black" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+          </div>
+          <span class="logo-text">FaceTime <span class="badge">無網二維碼版</span></span>
+        </div>
+      </div>
+
+      <!-- 操作卡片 -->
+      <div class="card flex flex-col gap-4">
+        <p class="text-muted">本模式 100% 離線運作。雙方處於同一個 Wi-Fi 網絡下，點擊下方按鈕，同時互掃生成的二維碼即可接通。</p>
+        
+        <!-- 角色選擇 -->
+        <div class="flex gap-2">
+          <button id="btn-caller" onclick="startPairingFlow('caller')" class="apple-btn btn-gray flex-1">我是發起方</button>
+          <button id="btn-receiver" onclick="startPairingFlow('receiver')" class="apple-btn btn-gray flex-1">我是接聽方</button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ================= 二維碼雙向對接彈窗 (z-100) ================= -->
+  <div id="qr-pairing-modal">
+    <!-- 上半部：鏡頭掃描 -->
+    <div class="scan-half">
+      <div id="reader"></div>
+      <div class="scan-target-box"></div>
+    </div>
+    
+    <!-- 下半部：本機動態二維碼 -->
+    <div class="qr-half">
+      <div class="pairing-progress" id="pairing-status">正在生成本地代碼...</div>
+      <div class="qr-container" id="qr-target"></div>
+      <button onclick="abortPairing()" class="apple-btn btn-red" style="max-width: 180px;">取消配對</button>
+    </div>
+  </div>
+
+  <!-- ================= 通話控制列 ================= -->
+  <div id="call-overlay">
+    <div class="control-bar">
+      <button onclick="toggleMic()" class="round-btn" id="btn-mic">🎙️</button>
+      <button onclick="toggleVideo()" class="round-btn" id="btn-video">📹</button>
+      <button onclick="endCall()" class="round-btn round-btn-red">📞</button>
+    </div>
+  </div>
+
+  <!-- ================= 核心對接邏輯 ================= -->
+  <script>
+    let peerConnection = null;
+    let localStream = null;
+    let remoteStream = null;
+    let activeRole = null;
+    let qrcodeGen = null;
+    let html5QrcodeScanner = null;
+    
+    // 二維碼輪播變數
+    let qrCarouselInterval = null;
+    let currentQrIndex = 0;
+    let myChunks = [];
+
+    // 接收緩衝區
+    let receivedChunks = {};
+    let totalChunksNeeded = 0;
+
+    const rtcConfig = { iceServers: [] }; // 完全離線局域網模式，不依賴外網 STUN
+
+    document.addEventListener("DOMContentLoaded", () => {
+      qrcodeGen = new QRCode("qr-target", { width: 160, height: 160 });
+    });
+
+    function showToast(msg) {
+      const container = document.getElementById('toast-container');
+      const toast = document.createElement('div');
+      toast.style.cssText = "background: rgba(30,30,30,0.95); border: 1px solid rgba(255,255,255,0.1); padding: 12px; border-radius: 12px; margin-bottom: 8px; font-size: 13px; text-align: center;";
+      toast.innerText = msg;
+      container.appendChild(toast);
+      setTimeout(() => toast.remove(), 3500);
+    }
+
+    async function startPairingFlow(role) {
+      activeRole = role;
+      document.getElementById('qr-pairing-modal').style.display = 'flex';
+      
+      // 1. 喚醒並載入本機鏡頭預覽
+      try {
+        localStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: true });
+        document.getElementById('local-video').srcObject = localStream;
+      } catch (err) {
+        showToast("相機啟動失敗: " + err.message);
+        abortPairing();
+        return;
+      }
+
+      // 2. 初始化 WebRTC Connection
+      initPeerConnection();
+
+      // 3. 根據角色生成 SDP
+      if (role === 'caller') {
+        const offer = await peerConnection.createOffer();
+        await peerConnection.setLocalDescription(offer);
+        prepareAndCarouselSDP(peerConnection.localDescription.sdp);
+      } else {
+        document.getElementById('pairing-status').innerText = "請先對準發起方的二維碼進行掃描...";
+      }
+
+      // 4. 開啟高頻掃描解析
+      startCameraScanner();
+    }
+
+    function initPeerConnection() {
+      if (peerConnection) peerConnection.close();
+      peerConnection = new RTCPeerConnection(rtcConfig);
+
+      peerConnection.ontrack = (event) => {
+        if (event.streams && event.streams[0]) {
+          remoteStream = event.streams[0];
+          document.getElementById('remote-video').srcObject = remoteStream;
+          transitionToCallActive();
+        }
+      };
+
+      if (localStream) {
+        localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+      }
+    }
+
+    // 將 SDP 壓縮、分段並啟動二維碼輪播
+    function prepareAndCarouselSDP(sdp) {
+      clearInterval(qrCarouselInterval);
+      
+      // Pako Deflate 壓縮及 Base64 轉換
+      const compressed = pako.deflate(sdp);
+      const binaryString = Array.from(compressed).map(b => String.fromCharCode(b)).join('');
+      const base64Data = btoa(binaryString);
+
+      // 分段 (每段 150 字元)
+      const chunkSize = 150;
+      myChunks = [];
+      const total = Math.ceil(base64Data.length / chunkSize);
+      for (let i = 0; i < total; i++) {
+        myChunks.push(`${i+1}/${total}_${base64Data.substr(i * chunkSize, chunkSize)}`);
+      }
+
+      // 啟動 Carousel 動態輪播
+      currentQrIndex = 0;
+      qrCarouselInterval = setInterval(() => {
+        if (myChunks.length === 0) return;
+        qrcodeGen.makeCode(myChunks[currentQrIndex]);
+        document.getElementById('pairing-status').innerText = `本地代碼傳輸中 (${currentQrIndex+1}/${myChunks.length})`;
+        currentQrIndex = (currentQrIndex + 1) % myChunks.length;
+      }, 250);
+    }
+
+    // 啟動攝像頭流式解碼
+    function startCameraScanner() {
+      html5QrcodeScanner = new Html5Qrcode("reader");
+      html5QrcodeScanner.start(
+        { facingMode: "environment" },
+        { fps: 15, qrbox: 250 },
+        onQrCodeScanned,
+        () => {} // 忽略掃描未命中幀
+      ).catch(err => {
+        showToast("掃描器初始化失敗: " + err);
+      });
+    }
+
+    // 接收與流式拼接二維碼數據
+    async function onQrCodeScanned(decodedText) {
+      const match = decodedText.match(/^(\d+)\/(\d+)_(.+)$/);
+      if (!match) return;
+
+      const idx = parseInt(match[1]);
+      const total = parseInt(match[2]);
+      const payload = match[3];
+
+      if (totalChunksNeeded === 0) {
+        totalChunksNeeded = total;
+      }
+
+      if (!receivedChunks[idx]) {
+        receivedChunks[idx] = payload;
+        const currentCount = Object.keys(receivedChunks).length;
+        showToast(`已接收對方分段: ${currentCount}/${total}`);
+
+        if (currentCount === totalChunksNeeded) {
+          // 完成收集，暫停掃描並執行還原
+          await html5QrcodeScanner.stop();
+          reconstructAndApplySDP();
+        }
+      }
+    }
+
+    // 重組 SDP 文本並注入 WebRTC
+    async function reconstructAndApplySDP() {
+      try {
+        let base64String = "";
+        for (let i = 1; i <= totalChunksNeeded; i++) {
+          base64String += receivedChunks[i];
+        }
+
+        // 解碼、解壓
+        const binaryString = atob(base64String);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+        const decompressedSdp = pako.inflate(bytes, { to: 'string' });
+
+        if (activeRole === 'caller') {
+          // 發起方：設置接聽方的 Answer 進入通道
+          await peerConnection.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: decompressedSdp }));
+          showToast("雙向握手對接完成，正在建立通話通道...");
+        } else {
+          // 接聽方：設置發起方的 Offer -> 建立 Answer -> 回傳 Answer 的輪播
+          await peerConnection.setRemoteDescription(new RTCSessionDescription({ type: 'offer', sdp: decompressedSdp }));
+          const answer = await peerConnection.createAnswer();
+          await peerConnection.setLocalDescription(answer);
+          
+          // 重置接收緩衝，等候發起方通道建立
+          receivedChunks = {};
+          totalChunksNeeded = 0;
+          
+          // 啟動本機 Answer 二維碼輪播供發起方掃描
+          prepareAndCarouselSDP(peerConnection.localDescription.sdp);
+          showToast("已成功解析發起方代碼！請讓發起方掃描下方生成的 Answer 代碼...");
+        }
+      } catch (err) {
+        showToast("代碼還原出錯，請重新進行掃描對焦。");
+        abortPairing();
+      }
+    }
+
+    function transitionToCallActive() {
+      // 關閉並清理所有配對視窗與計時器
+      abortPairing(false);
+      
+      document.getElementById('setup-panel').style.display = 'none';
+      document.getElementById('local-video-container').style.display = 'block';
+      document.getElementById('call-overlay').style.transform = 'translateY(0)';
+    }
+
+    function abortPairing(stopStream = true) {
+      clearInterval(qrCarouselInterval);
+      qrCarouselInterval = null;
+      receivedChunks = {};
+      totalChunksNeeded = 0;
+
+      if (html5QrcodeScanner) {
+        html5QrcodeScanner.stop().catch(() => {});
+        html5QrcodeScanner = null;
+      }
+
+      document.getElementById('qr-pairing-modal').style.display = 'none';
+
+      if (stopStream && localStream) {
+        localStream.getTracks().forEach(track => track.stop());
+        localStream = null;
+      }
+    }
+
+    function endCall() {
+      location.reload();
+    }
+
+    function toggleMic() {
+      if (localStream) {
+        const audioTrack = localStream.getAudioTracks()[0];
+        audioTrack.enabled = !audioTrack.enabled;
+        document.getElementById('btn-mic').innerText = audioTrack.enabled ? "🎙️" : "🔇";
+      }
+    }
+
+    function toggleVideo() {
+      if (localStream) {
+        const videoTrack = localStream.getVideoTracks()[0];
+        videoTrack.enabled = !videoTrack.enabled;
+        document.getElementById('btn-video').innerText = videoTrack.enabled ? "📹" : "🚫";
+      }
+    }
+  </script>
+</body>
+</html>
