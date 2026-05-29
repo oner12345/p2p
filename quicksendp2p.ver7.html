@@ -1,0 +1,2568 @@
+<!DOCTYPE html>
+<html lang="zh-TW" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QuickSend P2P - 仿 LocalSend 極速檔案分享</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            50: '#eefaf7',
+                            100: '#d4f2ea',
+                            500: '#00bfa5', /* LocalSend Teal */
+                            600: '#00a690',
+                            700: '#008775',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- PeerJS CDN (在線模式信令框架) -->
+    <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
+    <!-- QRCode CDN (產生配對二維碼) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <!-- Pako CDN (Zlib 高壓引擎，用於 SDP 壓縮) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
+    <!-- jsQR CDN (前端相機掃描解碼) -->
+    <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+    <style>
+        /* 自定義滾動條樣式 */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(156, 163, 175, 0.5);
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(156, 163, 175, 0.8);
+        }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-800 dark:bg-gray-900 dark:text-gray-100 min-h-full transition-colors duration-300 flex flex-col font-sans">
+
+    <!-- 頂部導航欄 -->
+    <header class="border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-950 sticky top-0 z-40">
+        <div class="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+                <!-- 標誌 (仿 LocalSend Logo) -->
+                <div class="w-10 h-10 bg-brand-500 rounded-2xl flex items-center justify-center text-white shadow-md shadow-brand-500/20 transform rotate-12 hover:rotate-0 transition-all duration-300">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                    </svg>
+                </div>
+                <div>
+                    <h1 class="text-xl font-bold tracking-tight bg-gradient-to-r from-brand-600 to-emerald-500 bg-clip-text text-transparent">QuickSend</h1>
+                    <p class="text-xs text-gray-400 font-medium">免安裝點對點極速傳輸</p>
+                </div>
+            </div>
+            
+            <div class="flex items-center space-x-2">
+                <!-- 狀態顯示燈 -->
+                <span id="connection-status-dot" class="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse"></span>
+                <span id="connection-status-text" class="text-xs text-gray-500 dark:text-gray-400 mr-2">正在初始化連線...</span>
+
+                <!-- 深色模式切換按鈕 -->
+                <button id="theme-toggle" class="p-2 rounded-xl border border-gray-200 dark:border-gray-800 hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-300 transition-colors">
+                    <svg id="theme-sun" class="h-5 w-5 hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="width: 20px; height: 20px;">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m12.728 0l-.707-.707M6.343 6.343l-.707-.707M12 8a4 4 0 100 8 4 4 0 000-8z" />
+                    </svg>
+                    <svg id="theme-moon" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="width: 20px; height: 20px;">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+                    </svg>
+                </button>
+
+                <!-- 設定按鈕 -->
+                <button id="settings-btn" class="p-2 rounded-xl border border-gray-200 dark:border-gray-800 hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-300 transition-colors">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="width: 20px; height: 20px;">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    </svg>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- 智慧熱點感應提示橫幅 -->
+    <div id="hotspot-banner-container" class="max-w-6xl w-full mx-auto px-4 pt-4 hidden">
+        <div id="hotspot-banner" class="rounded-3xl p-4 border transition-all duration-300 flex items-start space-x-3 shadow-sm">
+            <!-- 智慧注入 -->
+        </div>
+    </div>
+
+    <!-- 主區塊 -->
+    <main class="flex-1 max-w-6xl w-full mx-auto p-4 md:py-8 grid grid-cols-1 lg:grid-cols-12 gap-6">
+        
+        <!-- 左側：本機資訊與連線配對欄 (4 Cols) -->
+        <section class="lg:col-span-5 space-y-6 flex flex-col justify-start">
+            
+            <!-- 您的裝置卡片 -->
+            <div class="bg-white dark:bg-gray-950 rounded-3xl p-6 border border-gray-200/80 dark:border-gray-800/80 shadow-sm relative overflow-hidden">
+                <div class="absolute -right-12 -bottom-12 w-32 h-32 bg-brand-500/5 rounded-full pointer-events-none"></div>
+                
+                <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-4">本機裝置</h2>
+                
+                <div class="flex items-center space-x-4 mb-6">
+                    <div id="device-avatar" class="w-16 h-16 rounded-2xl bg-brand-100 dark:bg-brand-500/20 text-brand-600 dark:text-brand-400 flex items-center justify-center font-bold text-2xl shadow-inner uppercase">
+                        A
+                    </div>
+                    <div>
+                        <div class="flex items-center space-x-2">
+                            <span id="device-name" class="text-lg font-bold">隨機裝置名</span>
+                            <button id="edit-name-btn" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                                </svg>
+                            </button>
+                        </div>
+                        <p class="text-xs text-gray-400 mt-1 select-all font-mono" id="device-id-display">ID: 載入中...</p>
+                    </div>
+                </div>
+
+                <!-- 連結與掃描操作列 -->
+                <div class="grid grid-cols-2 gap-2 mt-4" id="online-quick-actions">
+                    <button id="copy-link-btn" class="flex items-center justify-center space-x-2 px-3 py-2.5 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 rounded-xl text-xs font-semibold transition-all">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+                        </svg>
+                        <span>複製專屬連結</span>
+                    </button>
+                    <button id="show-qr-btn" class="flex items-center justify-center space-x-2 px-3 py-2.5 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 rounded-xl text-xs font-semibold transition-all">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" />
+                        </svg>
+                        <span>顯示 QR Code</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- 連接控制盒 (雙模切換) -->
+            <div class="bg-white dark:bg-gray-950 rounded-3xl p-6 border border-gray-200/80 dark:border-gray-800/80 shadow-sm space-y-4">
+                <div class="flex justify-between items-center border-b border-gray-100 dark:border-gray-800 pb-3">
+                    <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wider">配對連線模式</h2>
+                    <div class="flex bg-gray-100 dark:bg-gray-900 rounded-xl p-0.5">
+                        <button id="mode-online-btn" class="px-3 py-1 text-xs font-bold rounded-lg bg-white dark:bg-gray-800 text-brand-600 dark:text-brand-400 shadow-sm transition-all">在線(自動)</button>
+                        <button id="mode-offline-btn" class="px-3 py-1 text-xs font-semibold rounded-lg text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition-all">離線(手動)</button>
+                    </div>
+                </div>
+
+                <!-- 模式 A：在線自動模式 -->
+                <div id="panel-mode-online" class="space-y-4">
+                    <div>
+                        <label class="block text-xs text-gray-500 mb-1">輸入對手裝置 ID 或是貼上連結</label>
+                        <div class="flex space-x-2">
+                            <input type="text" id="target-peer-id" placeholder="例如: shiny-penguin-xyz" class="flex-1 bg-gray-100 dark:bg-gray-900 border-0 focus:ring-2 focus:ring-brand-500 rounded-xl px-4 py-2 text-sm font-mono focus:outline-none transition-all">
+                            <button id="connect-btn" class="bg-brand-500 hover:bg-brand-600 text-white font-semibold text-sm px-5 py-2 rounded-xl transition-all shadow-md shadow-brand-500/15 flex items-center space-x-1">
+                                <span>連接</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- 已連接在線列表 -->
+                    <div>
+                        <div class="flex items-center justify-between mb-3">
+                            <span class="text-xs font-semibold text-gray-400">目前可用的接收者</span>
+                            <span id="active-peers-count" class="px-2 py-0.5 bg-gray-100 dark:bg-gray-800 rounded-full text-[10px] font-bold">0 個</span>
+                        </div>
+                        <div id="active-peers-list" class="space-y-2 max-h-48 overflow-y-auto pr-1">
+                            <div id="no-peers-text" class="text-xs text-gray-400 py-3 text-center border border-dashed border-gray-200 dark:border-gray-800 rounded-xl">
+                                尚未連線至任何裝置。
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 模式 B：離線手動模式 (SDP 壓縮二維碼交握) -->
+                <div id="panel-mode-offline" class="space-y-4 hidden">
+                    
+                    <!-- iOS 個人熱點防火牆警告 -->
+                    <div class="bg-amber-50 dark:bg-amber-950/30 border border-amber-200/50 dark:border-amber-900/50 rounded-2xl p-3 text-[11px] text-amber-700 dark:text-amber-300 leading-relaxed">
+                        <span class="font-bold">📱 iOS 個人熱點警告：</span>
+                        若其中一端使用 iPhone 分享熱點，因 iOS 單向入站防火牆限制，請務必由<strong class="underline decoration-2">「分享熱點者」作為發起端</strong>生成 Offer，並由對手掃描回應。
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-2">
+                        <button id="offline-initiate-btn" class="py-3 bg-brand-50 dark:bg-brand-500/10 hover:bg-brand-100 dark:hover:bg-brand-500/20 text-brand-600 dark:text-brand-400 font-bold text-xs rounded-xl transition-all flex flex-col items-center justify-center space-y-1 border border-brand-500/10">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                            </svg>
+                            <span>發起端 (建立 Offer)</span>
+                        </button>
+                        <button id="offline-join-btn" class="py-3 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 font-bold text-xs rounded-xl transition-all flex flex-col items-center justify-center space-y-1">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                            </svg>
+                            <span>加入端 (掃描 Offer)</span>
+                        </button>
+                    </div>
+
+                    <!-- 離線模式狀態監控 -->
+                    <div id="offline-status-box" class="p-3 bg-gray-50 dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 text-xs flex justify-between items-center hidden">
+                        <div>
+                            <p class="font-bold text-gray-500 dark:text-gray-400">離線 P2P 狀態</p>
+                            <p id="offline-status-text" class="text-brand-500 font-semibold mt-0.5">未建立連線</p>
+                        </div>
+                        <button id="offline-disconnect-btn" class="px-2.5 py-1 bg-rose-50 dark:bg-rose-950/20 text-rose-500 hover:bg-rose-100 text-[10px] font-bold rounded-lg transition-colors">斷開</button>
+                    </div>
+
+                </div>
+            </div>
+
+        </section>
+
+        <!-- 右側：發送端與傳輸進度控制中心 (7 Cols) -->
+        <section class="lg:col-span-7 space-y-6 flex flex-col justify-start">
+            
+            <!-- 大工作切換標籤：傳送 vs 傳輸歷史 -->
+            <div class="bg-white dark:bg-gray-950 rounded-3xl p-2 border border-gray-200/80 dark:border-gray-800/80 shadow-sm flex">
+                <button id="tab-send" class="flex-1 py-3 text-center font-bold text-sm rounded-2xl bg-brand-50 dark:bg-brand-500/10 text-brand-600 dark:text-brand-400 transition-all flex items-center justify-center space-x-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="width: 20px; height: 20px; min-width: 20px; min-height: 20px;">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                    </svg>
+                    <span>傳送檔案</span>
+                </button>
+                <button id="tab-history" class="flex-1 py-3 text-center font-semibold text-sm rounded-2xl text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-all flex items-center justify-center space-x-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="width: 20px; height: 20px; min-width: 20px; min-height: 20px;">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <span>傳輸歷史</span>
+                </button>
+            </div>
+
+            <!-- 切換視窗一：傳送介面 -->
+            <div id="send-panel" class="space-y-6 transition-all">
+                
+                <!-- 檔案拖曳區域 -->
+                <div id="drop-zone" class="border-2 border-dashed border-gray-300 dark:border-gray-700 hover:border-brand-500 dark:hover:border-brand-500 rounded-3xl p-8 bg-white dark:bg-gray-950 transition-all text-center cursor-pointer relative group">
+                    <input type="file" id="file-input" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer" multiple>
+                    
+                    <div class="space-y-4">
+                        <div class="w-16 h-16 bg-brand-50 dark:bg-brand-500/10 rounded-full flex items-center justify-center mx-auto text-brand-500 group-hover:scale-110 transition-transform">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 13h6m-3-3v6m-9 1V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
+                            </svg>
+                        </div>
+                        <div>
+                            <p class="font-bold text-base">拖曳檔案至此，或 <span class="text-brand-500 group-hover:underline">瀏覽本機檔案</span></p>
+                            <p class="text-xs text-gray-400 mt-1">支援傳送多檔案、任意大小格式</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 待傳送檔案清單 -->
+                <div id="file-queue-card" class="bg-white dark:bg-gray-950 rounded-3xl p-6 border border-gray-200/80 dark:border-gray-800/80 shadow-sm hidden">
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 class="text-sm font-bold flex items-center space-x-2">
+                            <span>待傳送佇列</span>
+                            <span id="queue-count" class="px-2 py-0.5 bg-brand-50 dark:bg-brand-500/10 text-brand-600 dark:text-brand-400 rounded-full text-xs font-bold">0</span>
+                        </h3>
+                        <div class="flex space-x-2">
+                            <button id="clear-queue-btn" class="text-xs font-semibold text-rose-500 hover:underline">清除全部</button>
+                        </div>
+                    </div>
+
+                    <!-- 檔案清單滾動區 -->
+                    <div id="queue-list" class="space-y-2 max-h-60 overflow-y-auto pr-1">
+                        <!-- 動態填充檔案項目 -->
+                    </div>
+
+                    <!-- 送出操作面板 -->
+                    <div class="border-t border-gray-100 dark:border-gray-800 mt-6 pt-4 flex items-center justify-between flex-wrap gap-4">
+                        <div>
+                            <p class="text-xs text-gray-400">總檔案大小</p>
+                            <p id="queue-total-size" class="text-base font-bold text-gray-700 dark:text-gray-200">0 KB</p>
+                        </div>
+                        <div class="flex space-x-2 w-full sm:w-auto">
+                            <button id="start-send-btn" class="w-full sm:w-auto bg-brand-500 hover:bg-brand-600 text-white font-bold px-6 py-3 rounded-2xl transition-all shadow-lg shadow-brand-500/20 flex items-center justify-center space-x-2">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                                </svg>
+                                <span>發送檔案</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- 切換視窗二：傳輸歷史介面 -->
+            <div id="history-panel" class="bg-white dark:bg-gray-950 rounded-3xl p-6 border border-gray-200/80 dark:border-gray-800/80 shadow-sm space-y-4 hidden">
+                <div class="flex items-center justify-between">
+                    <h2 class="text-base font-bold">傳輸紀錄</h2>
+                    <button id="clear-history-btn" class="text-xs text-gray-400 hover:text-rose-500 font-semibold">清除歷史</button>
+                </div>
+                
+                <div id="history-list" class="space-y-3 max-h-96 overflow-y-auto pr-1">
+                    <!-- 空歷史提示 -->
+                    <div id="no-history-text" class="text-center py-8 text-gray-400 text-sm">
+                        目前沒有任何傳送或接收紀錄
+                    </div>
+                </div>
+            </div>
+
+            <!-- 即時傳輸監控面版 (當有傳輸任務時顯示) -->
+            <div id="transfer-progress-card" class="bg-white dark:bg-gray-950 rounded-3xl p-6 border border-brand-500/30 dark:border-brand-500/30 shadow-lg shadow-brand-500/5 hidden">
+                <div class="flex items-center justify-between mb-4">
+                    <div class="flex items-center space-x-2">
+                        <span id="transfer-direction-badge" class="px-2.5 py-1 bg-brand-50 dark:bg-brand-500/15 text-brand-600 dark:text-brand-400 text-xs font-bold rounded-lg uppercase">
+                            傳送中
+                        </span>
+                        <h3 class="text-sm font-bold" id="transfer-target-device">傳送到：未知裝置</h3>
+                    </div>
+                    <span id="transfer-rate" class="text-xs font-mono font-bold text-brand-500">0.00 MB/s</span>
+                </div>
+
+                <div class="space-y-3">
+                    <div class="flex justify-between items-center text-xs">
+                        <span id="transfer-filename" class="font-semibold truncate max-w-xs md:max-w-md">檔案名稱.ext</span>
+                        <span id="transfer-percentage" class="font-bold font-mono">0%</span>
+                    </div>
+
+                    <!-- 進度條 -->
+                    <div class="w-full bg-gray-100 dark:bg-gray-900 rounded-full h-2.5 overflow-hidden">
+                        <div id="transfer-progress-bar" class="bg-brand-500 h-2.5 rounded-full transition-all duration-100" style="width: 0%"></div>
+                    </div>
+
+                    <div class="flex justify-between items-center text-[11px] text-gray-400">
+                        <span id="transfer-bytes-ratio">0 B / 0 B</span>
+                        <span id="transfer-eta">估計剩餘時間：--:--</span>
+                    </div>
+                </div>
+            </div>
+
+        </section>
+    </main>
+
+    <!-- 底部資訊與功能特色說明 -->
+    <footer class="mt-auto border-t border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-950/50 py-4">
+        <div class="max-w-6xl mx-auto px-4 flex flex-col md:flex-row items-center justify-between text-xs text-gray-400 gap-2">
+            <p>© 2026 QuickSend P2P. 專屬安全直連通道。</p>
+            <div class="flex space-x-4">
+                <span class="flex items-center"><span class="w-2 h-2 rounded-full bg-green-500 mr-1.5"></span>點對點無快取</span>
+                <span class="flex items-center"><span class="w-2 h-2 rounded-full bg-brand-500 mr-1.5"></span>網域內直連不限速</span>
+            </div>
+        </div>
+    </footer>
+
+    <!-- 全域通知/訊息元件 -->
+    <div id="toast-container" class="fixed bottom-6 right-6 z-50 flex flex-col space-y-2 pointer-events-none max-w-sm w-full"></div>
+
+    <!-- 彈出視窗 1：設定 Modal -->
+    <div id="settings-modal" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center opacity-0 pointer-events-none transition-opacity duration-300">
+        <div class="bg-white dark:bg-gray-950 w-full max-w-md rounded-3xl p-6 m-4 shadow-2xl transform scale-95 transition-transform duration-300">
+            <div class="flex justify-between items-center mb-6">
+                <h3 class="text-lg font-bold">偏好設定</h3>
+                <button class="close-modal-btn text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            </div>
+            
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-semibold mb-1">修改裝置名稱</label>
+                    <input type="text" id="setting-device-name" class="w-full bg-gray-100 dark:bg-gray-900 border-0 focus:ring-2 focus:ring-brand-500 rounded-xl px-4 py-3 text-sm focus:outline-none">
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-semibold mb-1">聲音提醒</label>
+                    <div class="flex items-center justify-between bg-gray-50 dark:bg-gray-900/50 p-3 rounded-xl border border-gray-100 dark:border-gray-800">
+                        <span class="text-xs text-gray-500">傳輸完成時發出悅耳聲響</span>
+                        <input type="checkbox" id="setting-sound-toggle" checked class="w-4 h-4 text-brand-500 focus:ring-brand-500 rounded border-gray-300">
+                    </div>
+                </div>
+
+                <div>
+                    <div class="flex items-center justify-between mb-2">
+                        <label class="text-sm font-semibold">自訂 ICE 伺服器 (進階連線)</label>
+                        <span class="text-[10px] text-gray-400 font-medium">穿透複雜防火牆</span>
+                    </div>
+                    <textarea id="setting-ice-config" rows="3" placeholder='例如: [{"urls": "stun:stun.l.google.com:19302"}]' class="w-full bg-gray-100 dark:bg-gray-900 border-0 focus:ring-2 focus:ring-brand-500 rounded-xl px-4 py-3 text-xs font-mono focus:outline-none"></textarea>
+                </div>
+            </div>
+
+            <div class="mt-8 flex justify-end space-x-2">
+                <button class="close-modal-btn px-4 py-2 text-sm font-semibold text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-900 rounded-xl">取消</button>
+                <button id="save-settings-btn" class="px-5 py-2.5 bg-brand-500 hover:bg-brand-600 text-white font-bold text-sm rounded-xl shadow-md shadow-brand-500/10">儲存變更</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 彈出視窗 2：二維碼 Modal -->
+    <div id="qr-modal" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center opacity-0 pointer-events-none transition-opacity duration-300">
+        <div class="bg-white dark:bg-gray-950 w-full max-w-sm rounded-3xl p-6 m-4 shadow-2xl text-center transform scale-95 transition-transform duration-300">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-lg font-bold">配對 QR Code</h3>
+                <button class="close-modal-btn text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            </div>
+            
+            <p class="text-xs text-gray-500 mb-6">使用同 Wi-Fi 網路底下的手機掃描二維碼即可直接連接與傳送。</p>
+            
+            <div class="bg-white p-4 rounded-2xl inline-block shadow-inner mx-auto border border-gray-100">
+                <div id="qrcode" class="w-48 h-48 flex items-center justify-center"></div>
+            </div>
+
+            <div class="mt-6">
+                <button class="close-modal-btn w-full bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 font-bold py-3 rounded-xl text-sm transition-all">關閉</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 彈出視窗 3：接收檔案邀請 Modal -->
+    <div id="receive-request-modal" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center opacity-0 pointer-events-none transition-opacity duration-300">
+        <div class="bg-white dark:bg-gray-950 w-full max-w-md rounded-3xl p-6 m-4 shadow-2xl transform scale-95 transition-transform duration-300 border border-brand-500/20">
+            <div class="flex items-center space-x-3 mb-4">
+                <div class="w-12 h-12 bg-brand-50 dark:bg-brand-500/10 text-brand-500 rounded-full flex items-center justify-center animate-bounce">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                </div>
+                <div>
+                    <h3 class="text-base font-bold">收到檔案傳輸請求</h3>
+                    <p class="text-xs text-gray-400">來源裝置：<span id="req-sender-name" class="font-bold text-gray-600 dark:text-gray-200"></span></p>
+                </div>
+            </div>
+
+            <div class="bg-gray-50 dark:bg-gray-900/50 rounded-2xl p-4 mb-6 border border-gray-100 dark:border-gray-800">
+                <div class="flex justify-between text-xs text-gray-400 mb-2 font-medium">
+                    <span>準備接收的檔案列表</span>
+                    <span id="req-file-count" class="font-bold">0 個檔案</span>
+                </div>
+                
+                <div id="req-file-list" class="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+                    <!-- 動態填充檔案項目 -->
+                </div>
+
+                <div class="border-t border-gray-100 dark:border-gray-800/80 mt-3 pt-3 flex justify-between items-center text-xs">
+                    <span class="text-gray-400">總大小：</span>
+                    <span id="req-total-size" class="font-bold text-brand-500">0 KB</span>
+                </div>
+            </div>
+
+            <div class="flex space-x-2">
+                <button id="reject-transfer-btn" class="flex-1 py-3 border border-rose-500/30 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/20 font-bold text-sm rounded-xl transition-all">拒絕</button>
+                <button id="accept-transfer-btn" class="flex-1 py-3 bg-brand-500 hover:bg-brand-600 text-white font-bold text-sm rounded-xl shadow-lg shadow-brand-500/20 transition-all">接受並下載</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 彈出視窗 4：離線 SDP 二維碼輪播 Modal (FLIXS 協定) -->
+    <div id="sdp-carousel-modal" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center opacity-0 pointer-events-none transition-opacity duration-300">
+        <div class="bg-white dark:bg-gray-950 w-full max-w-sm rounded-3xl p-6 m-4 shadow-2xl text-center transform scale-95 transition-transform duration-300">
+            <div class="flex justify-between items-center mb-2">
+                <h3 class="text-lg font-bold" id="carousel-title">建立 Offer 二維碼</h3>
+                <button class="close-modal-btn text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            </div>
+            <p class="text-xs text-gray-400 mb-6" id="carousel-desc">請對手使用「加入端」相機掃描下方輪播二維碼</p>
+
+            <!-- 輪播二維碼展示區 -->
+            <div class="bg-white p-4 rounded-2xl inline-block shadow-inner mx-auto border border-gray-100 relative">
+                <div id="sdp-qrcode-box" class="w-48 h-48 flex items-center justify-center"></div>
+                <!-- 輪播暫停/播放 覆蓋指示器 -->
+                <button id="carousel-play-toggle" class="absolute bottom-2 right-2 p-1.5 bg-gray-950/80 hover:bg-brand-500 text-white rounded-lg transition-colors shadow-sm">
+                    <svg id="icon-carousel-pause" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6"></path></svg>
+                    <svg id="icon-carousel-play" class="w-4 h-4 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path></svg>
+                </button>
+            </div>
+
+            <!-- 分段狀態與手動控制 -->
+            <div class="mt-4 flex items-center justify-between px-2">
+                <button id="carousel-prev-btn" class="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-xl transition-colors text-gray-500">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg>
+                </button>
+                <div class="text-xs font-semibold text-gray-500">
+                    <span id="carousel-index">1</span> / <span id="carousel-total">1</span> 片 (每 2.2 秒自動輪播)
+                </div>
+                <button id="carousel-next-btn" class="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-xl transition-colors text-gray-500">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+                </button>
+            </div>
+
+            <!-- 小圓點索引指示器 -->
+            <div id="carousel-dots" class="flex justify-center space-x-1.5 mt-3"></div>
+
+            <div class="mt-6" id="carousel-action-box">
+                <!-- 動態注入引導按鈕 -->
+            </div>
+        </div>
+    </div>
+
+    <!-- 彈出視窗 5：相機 HUD 即時拼接掃描器 Modal (jsQR) -->
+    <div id="scanner-modal" class="fixed inset-0 bg-black/90 backdrop-blur-md z-50 flex flex-col items-center justify-center opacity-0 pointer-events-none transition-opacity duration-300">
+        <div class="relative w-full max-w-md h-full flex flex-col justify-between p-6">
+            
+            <!-- 頂部控制列 -->
+            <div class="flex justify-between items-center text-white z-10">
+                <div>
+                    <h3 class="text-base font-bold" id="scanner-title">掃描離線 Offer</h3>
+                    <p class="text-[11px] text-gray-400">請對準對手螢幕上的輪播二維碼</p>
+                </div>
+                <button id="close-scanner-btn" class="p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors text-white">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            </div>
+
+            <!-- 中間相機預覽 & 繪製畫布 (HUD 覆蓋層) -->
+            <div class="relative flex-1 my-4 flex items-center justify-center overflow-hidden rounded-3xl bg-gray-950 border border-white/10">
+                <video id="scanner-video" class="absolute w-full h-full object-cover hidden" playsinline></video>
+                <canvas id="scanner-canvas" class="w-full h-full object-cover z-10"></canvas>
+            </div>
+
+            <!-- 底部：分段收集拼接狀態 HUD -->
+            <div class="bg-gray-900/90 border border-white/10 rounded-2xl p-4 text-center z-10 space-y-3">
+                <p class="text-xs text-white font-semibold">分段二維碼收集進度</p>
+                <div id="hud-segments-box" class="flex justify-center items-center flex-wrap gap-2 py-1">
+                    <span class="text-xs text-gray-500">正在等待偵測二維碼...</span>
+                </div>
+                <p id="hud-status-text" class="text-[10px] text-brand-500 font-mono tracking-wider animate-pulse">CAPTURER ACTIVE - WAITING FOR QR</p>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- 主要程式邏輯 -->
+    <script>
+        // ---------------------------------------------
+        // 0. 全域高相容檔案大小位元組格式化函數
+        // ---------------------------------------------
+        function formatBytes(bytes, decimals = 2) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const dm = decimals < 0 ? 0 : decimals;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+        }
+
+        // ---------------------------------------------
+        // 1. IndexedDB 直軌零內存暫存引擎初始化 (防 iOS Safari 閃退核心機制)
+        // ---------------------------------------------
+        const dbPromise = new Promise((resolve, reject) => {
+            const request = indexedDB.open("QuickSendDB", 1);
+            request.onupgradeneeded = (e) => {
+                const db = e.target.result;
+                if (!db.objectStoreNames.contains("chunks")) {
+                    db.createObjectStore("chunks", { keyPath: "id" });
+                }
+            };
+            request.onsuccess = (e) => resolve(e.target.result);
+            request.onerror = (e) => reject(e.target.error);
+        });
+
+        async function saveChunkToDisk(fileId, index, arrayBuffer) {
+            const db = await dbPromise;
+            const blobPointer = new Blob([arrayBuffer]); // 轉換為虛擬文件指針
+            return new Promise((resolve, reject) => {
+                const tx = db.transaction("chunks", "readwrite");
+                const store = tx.objectStore("chunks");
+                store.put({
+                    id: `${fileId}_${index}`,
+                    fileId: fileId,
+                    index: index,
+                    data: blobPointer
+                });
+                tx.oncomplete = () => resolve();
+                tx.onerror = () => reject(tx.error);
+            });
+        }
+
+        async function getChunksFromDisk(fileId, totalChunks) {
+            const db = await dbPromise;
+            return new Promise((resolve, reject) => {
+                const tx = db.transaction("chunks", "readonly");
+                const store = tx.objectStore("chunks");
+                const promises = [];
+                for (let i = 0; i < totalChunks; i++) {
+                    promises.push(new Promise((res, rej) => {
+                        const req = store.get(`${fileId}_${i}`);
+                        req.onsuccess = () => {
+                            res(req.result ? req.result.data : null);
+                        };
+                        req.onerror = () => rej(req.error);
+                    }));
+                }
+                Promise.all(promises).then(resolve).catch(reject);
+            });
+        }
+
+        async function clearChunksFromDisk(fileId, totalChunks) {
+            const db = await dbPromise;
+            return new Promise((resolve, reject) => {
+                const tx = db.transaction("chunks", "readwrite");
+                const store = tx.objectStore("chunks");
+                for (let i = 0; i < totalChunks; i++) {
+                    store.delete(`${fileId}_${i}`);
+                }
+                tx.oncomplete = () => resolve();
+                tx.onerror = () => reject(tx.error);
+            });
+        }
+
+        // ---------------------------------------------
+        // 2. 初始化全域狀態 & 隨機名稱生成器
+        // ---------------------------------------------
+        const ADJECTIVES = ["閃耀的", "快速的", "溫柔的", "聰明的", "勇敢的", "優雅的", "神秘的", "活潑的", "沉穩的", "歡樂的", "酷炫的", "奇幻的", "自由的", "敏捷的", "溫暖的", "金色的", "睿智的", "極致的", "和平的", "幸運的"];
+        const ANIMALS = ["熊貓", "松鼠", "海豚", "企鵝", "樹懶", "貓咪", "柴犬", "兔子", "狐狸", "大象", "貓頭鷹", "蜜蜂", "蝴蝶", "樹蛙", "無尾熊", "雪豹", "斑馬", "鸚鵡", "水豚", "麋鹿"];
+        
+        function generateDeviceName() {
+            const adj = ADJECTIVES[Math.floor(Math.random() * ADJECTIVES.length)];
+            const anim = ANIMALS[Math.floor(Math.random() * ANIMALS.length)];
+            return `${adj}${anim}`;
+        }
+
+        let state = {
+            id: null,
+            name: localStorage.getItem('qs_device_name') || generateDeviceName(),
+            soundEnabled: localStorage.getItem('qs_sound_enabled') !== 'false',
+            iceServers: JSON.parse(localStorage.getItem('qs_ice_servers') || '[]'),
+            theme: localStorage.getItem('qs_theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'),
+            peer: null,
+            connections: {},      
+            discoveredPeers: {},  
+            fileQueue: [],        
+            transferQueue: [],    
+            activeTransfer: null, 
+            receivedChunks: {},   
+            
+            connectionMode: 'online', 
+            nativeConn: null,          
+            nativeDataChannel: null,   
+            activeOnlinePeerId: null,  
+
+            offlineSessionId: null,
+            offlineRole: null,         
+            scannedPieces: {}          
+        };
+
+        localStorage.setItem('qs_device_name', state.name);
+
+        // ---------------------------------------------
+        // 3. UI 初始化、主題、雙模切換、及熱點感應面板
+        // ---------------------------------------------
+        const dom = {
+            themeToggle: document.getElementById('theme-toggle'),
+            themeSun: document.getElementById('theme-sun'),
+            themeMoon: document.getElementById('theme-moon'),
+            settingsBtn: document.getElementById('settings-btn'),
+            settingsModal: document.getElementById('settings-modal'),
+            saveSettingsBtn: document.getElementById('save-settings-btn'),
+            settingDeviceName: document.getElementById('setting-device-name'),
+            settingSoundToggle: document.getElementById('setting-sound-toggle'),
+            settingIceConfig: document.getElementById('setting-ice-config'),
+            deviceNameDisplay: document.getElementById('device-name'),
+            deviceIdDisplay: document.getElementById('device-id-display'),
+            deviceAvatar: document.getElementById('device-avatar'),
+            statusDot: document.getElementById('connection-status-dot'),
+            statusText: document.getElementById('connection-status-text'),
+            copyLinkBtn: document.getElementById('copy-link-btn'),
+            showQrBtn: document.getElementById('show-qr-btn'),
+            qrModal: document.getElementById('qr-modal'),
+            targetPeerId: document.getElementById('target-peer-id'),
+            connectBtn: document.getElementById('connect-btn'),
+            activePeersCount: document.getElementById('active-peers-count'),
+            activePeersList: document.getElementById('active-peers-list'),
+            noPeersText: document.getElementById('no-peers-text'),
+            
+            modeOnlineBtn: document.getElementById('mode-online-btn'),
+            modeOfflineBtn: document.getElementById('mode-offline-btn'),
+            panelModeOnline: document.getElementById('panel-mode-online'),
+            panelModeOffline: document.getElementById('panel-mode-offline'),
+            onlineQuickActions: document.getElementById('online-quick-actions'),
+            offlineStatusBox: document.getElementById('offline-status-box'),
+            offlineStatusText: document.getElementById('offline-status-text'),
+            offlineDisconnectBtn: document.getElementById('offline-disconnect-btn'),
+            
+            offlineInitiateBtn: document.getElementById('offline-initiate-btn'),
+            offlineJoinBtn: document.getElementById('offline-join-btn'),
+
+            sdpCarouselModal: document.getElementById('sdp-carousel-modal'),
+            carouselTitle: document.getElementById('carousel-title'),
+            carouselDesc: document.getElementById('carousel-desc'),
+            sdpQrcodeBox: document.getElementById('sdp-qrcode-box'),
+            carouselPlayToggle: document.getElementById('carousel-play-toggle'),
+            iconCarouselPause: document.getElementById('icon-carousel-pause'),
+            iconCarouselPlay: document.getElementById('icon-carousel-play'),
+            carouselPrevBtn: document.getElementById('carousel-prev-btn'),
+            carouselNextBtn: document.getElementById('carousel-next-btn'),
+            carouselIndex: document.getElementById('carousel-index'),
+            carouselTotal: document.getElementById('carousel-total'),
+            carouselDots: document.getElementById('carousel-dots'),
+            carouselActionBox: document.getElementById('carousel-action-box'),
+
+            scannerModal: document.getElementById('scanner-modal'),
+            scannerTitle: document.getElementById('scanner-title'),
+            scannerVideo: document.getElementById('scanner-video'),
+            scannerCanvas: document.getElementById('scanner-canvas'),
+            closeScannerBtn: document.getElementById('close-scanner-btn'),
+            hudSegmentsBox: document.getElementById('hud-segments-box'),
+            hudStatusText: document.getElementById('hud-status-text'),
+
+            tabSend: document.getElementById('tab-send'),
+            tabHistory: document.getElementById('tab-history'),
+            sendPanel: document.getElementById('send-panel'),
+            historyPanel: document.getElementById('history-panel'),
+            
+            dropZone: document.getElementById('drop-zone'),
+            fileInput: document.getElementById('file-input'),
+            fileQueueCard: document.getElementById('file-queue-card'),
+            queueCount: document.getElementById('queue-count'),
+            queueList: document.getElementById('queue-list'),
+            clearQueueBtn: document.getElementById('clear-queue-btn'),
+            queueTotalSize: document.getElementById('queue-total-size'),
+            startSendBtn: document.getElementById('start-send-btn'),
+            
+            historyList: document.getElementById('history-list'),
+            noHistoryText: document.getElementById('no-history-text'),
+            clearHistoryBtn: document.getElementById('clear-history-btn'),
+            transferProgressCard: document.getElementById('transfer-progress-card'),
+            transferDirectionBadge: document.getElementById('transfer-direction-badge'),
+            transferTargetDevice: document.getElementById('transfer-target-device'),
+            transferRate: document.getElementById('transfer-rate'),
+            transferFilename: document.getElementById('transfer-filename'),
+            transferPercentage: document.getElementById('transfer-percentage'),
+            transferProgressBar: document.getElementById('transfer-progress-bar'),
+            transferBytesRatio: document.getElementById('transfer-bytes-ratio'),
+            transferEta: document.getElementById('transfer-eta'),
+            
+            receiveRequestModal: document.getElementById('receive-request-modal'),
+            reqSenderName: document.getElementById('req-sender-name'),
+            reqFileCount: document.getElementById('req-file-count'),
+            reqFileList: document.getElementById('req-file-list'),
+            reqTotalSize: document.getElementById('req-total-size'),
+            rejectTransferBtn: document.getElementById('reject-transfer-btn'),
+            acceptTransferBtn: document.getElementById('accept-transfer-btn'),
+            
+            toastContainer: document.getElementById('toast-container'),
+            hotspotBannerContainer: document.getElementById('hotspot-banner-container'),
+            hotspotBanner: document.getElementById('hotspot-banner')
+        };
+
+        function applyTheme() {
+            if (state.theme === 'dark') {
+                document.documentElement.classList.add('dark');
+                dom.themeSun.classList.remove('hidden');
+                dom.themeMoon.classList.add('hidden');
+            } else {
+                document.documentElement.classList.remove('dark');
+                dom.themeSun.classList.add('hidden');
+                dom.themeMoon.classList.remove('hidden');
+            }
+            localStorage.setItem('qs_theme', state.theme);
+        }
+
+        dom.themeToggle.addEventListener('click', () => {
+            state.theme = state.theme === 'light' ? 'dark' : 'light';
+            applyTheme();
+        });
+
+        applyTheme();
+
+        function updateLocalDeviceUI() {
+            dom.deviceNameDisplay.textContent = state.name;
+            dom.settingDeviceName.value = state.name;
+            const firstChar = state.name.substring(0, 1);
+            dom.deviceAvatar.textContent = firstChar;
+            
+            let hash = 0;
+            for (let i = 0; i < state.name.length; i++) {
+                hash = state.name.charCodeAt(i) + ((hash << 5) - hash);
+            }
+            const hue = Math.abs(hash % 360);
+            dom.deviceAvatar.style.backgroundColor = `hsl(${hue}, 70%, 85%)`;
+            dom.deviceAvatar.style.color = `hsl(${hue}, 70%, 30%)`;
+        }
+
+        updateLocalDeviceUI();
+
+        dom.modeOnlineBtn.addEventListener('click', () => {
+            setMode('online');
+        });
+
+        dom.modeOfflineBtn.addEventListener('click', () => {
+            setMode('offline');
+        });
+
+        function setMode(mode) {
+            state.connectionMode = mode;
+            if (mode === 'online') {
+                dom.modeOnlineBtn.className = "px-3 py-1 text-xs font-bold rounded-lg bg-white dark:bg-gray-800 text-brand-600 dark:text-brand-400 shadow-sm transition-all";
+                dom.modeOfflineBtn.className = "px-3 py-1 text-xs font-semibold rounded-lg text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition-all";
+                dom.panelModeOnline.classList.remove('hidden');
+                dom.panelModeOffline.classList.add('hidden');
+                dom.onlineQuickActions.classList.remove('hidden');
+                dom.deviceIdDisplay.classList.remove('hidden');
+                
+                if (state.peer && state.peer.open) {
+                    setOnlineState();
+                } else {
+                    initializePeer();
+                }
+            } else {
+                dom.modeOnlineBtn.className = "px-3 py-1 text-xs font-semibold rounded-lg text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition-all";
+                dom.modeOfflineBtn.className = "px-3 py-1 text-xs font-bold rounded-lg bg-white dark:bg-gray-800 text-brand-600 dark:text-brand-400 shadow-sm transition-all";
+                dom.panelModeOnline.classList.add('hidden');
+                dom.panelModeOffline.classList.remove('hidden');
+                dom.onlineQuickActions.classList.add('hidden');
+                dom.deviceIdDisplay.classList.add('hidden');
+                
+                dom.statusDot.className = "w-2.5 h-2.5 rounded-full bg-blue-500";
+                dom.statusText.textContent = "手動離線模式";
+            }
+        }
+
+        // ---------------------------------------------
+        // 4. Toast 通知系統與音效
+        // ---------------------------------------------
+        function showToast(message, type = 'info', duration = 3000) {
+            const toast = document.createElement('div');
+            toast.className = `p-4 rounded-2xl shadow-lg border text-sm font-semibold flex items-center justify-between transition-all duration-300 transform translate-y-4 opacity-0 pointer-events-auto w-full`;
+            
+            let bgClass, borderClass, textClass, iconSvg;
+            if (type === 'success') {
+                bgClass = 'bg-emerald-50 dark:bg-emerald-950/80';
+                borderClass = 'border-emerald-100 dark:border-emerald-900';
+                textClass = 'text-emerald-800 dark:text-emerald-200';
+                iconSvg = `<svg class="w-5 h-5 text-emerald-500 mr-2 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>`;
+            } else if (type === 'error') {
+                bgClass = 'bg-rose-50 dark:bg-rose-950/80';
+                borderClass = 'border-rose-100 dark:border-rose-900';
+                textClass = 'text-rose-800 dark:text-rose-200';
+                iconSvg = `<svg class="w-5 h-5 text-rose-500 mr-2 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>`;
+            } else {
+                bgClass = 'bg-blue-50 dark:bg-blue-950/80';
+                borderClass = 'border-blue-100 dark:border-blue-900';
+                textClass = 'text-blue-800 dark:text-blue-200';
+                iconSvg = `<svg class="w-5 h-5 text-blue-500 mr-2 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>`;
+            }
+            
+            toast.className += ` ${bgClass} ${borderClass} ${textClass}`;
+            toast.innerHTML = `
+                <div class="flex items-center">
+                    ${iconSvg}
+                    <span>${message}</span>
+                </div>
+            `;
+            
+            dom.toastContainer.appendChild(toast);
+            
+            setTimeout(() => {
+                toast.classList.remove('translate-y-4', 'opacity-0');
+            }, 10);
+            
+            setTimeout(() => {
+                toast.classList.add('translate-y-4', 'opacity-0');
+                setTimeout(() => {
+                    toast.remove();
+                }, 300);
+            }, duration);
+        }
+
+        function playSuccessSound() {
+            if (!state.soundEnabled) return;
+            try {
+                const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+                
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(523.25, ctx.currentTime); 
+                gain.gain.setValueAtTime(0.08, ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.15);
+                
+                osc.frequency.setValueAtTime(659.25, ctx.currentTime + 0.15); 
+                gain.gain.setValueAtTime(0.08, ctx.currentTime + 0.15);
+                gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.45);
+                
+                osc.start(ctx.currentTime);
+                osc.stop(ctx.currentTime + 0.45);
+            } catch (e) {
+                console.warn("音訊反饋播放失敗:", e);
+            }
+        }
+
+        // ---------------------------------------------
+        // 5. Modal 彈窗控制
+        // ---------------------------------------------
+        function openModal(modal) {
+            modal.classList.remove('pointer-events-none', 'opacity-0');
+            const card = modal.querySelector('div');
+            if (card) {
+                card.classList.remove('scale-95');
+                card.classList.add('scale-100');
+            }
+        }
+
+        function closeModal(modal) {
+            modal.classList.add('pointer-events-none', 'opacity-0');
+            const card = modal.querySelector('div');
+            if (card) {
+                card.classList.remove('scale-100');
+                card.classList.add('scale-95');
+            }
+        }
+
+        document.querySelectorAll('.close-modal-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                closeModal(e.currentTarget.closest('.fixed'));
+            });
+        });
+
+        // ---------------------------------------------
+        // 6. Base64 ↔ Uint8Array 轉換
+        // ---------------------------------------------
+        function uint8ToBase64(uint8) {
+            let binary = '';
+            const len = uint8.byteLength;
+            for (let i = 0; i < len; i++) {
+                binary += String.fromCharCode(uint8[i]);
+            }
+            return btoa(binary);
+        }
+
+        function base64ToUint8(base64) {
+            const binary = atob(base64);
+            const len = binary.length;
+            const bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) {
+                bytes[i] = binary.charCodeAt(i);
+            }
+            return bytes;
+        }
+
+        // ---------------------------------------------
+        // 7. SDP 壓縮/解壓縮 (Pako Engine)
+        // ---------------------------------------------
+        function pruneSDP(sdp) {
+            if (!sdp) return '';
+            const lines = sdp.split(/\r?\n/);
+            
+            const prunedLines = lines.map(line => line.trim()).filter(line => {
+                if (!line) return false;
+                
+                if (line.startsWith('v=') || 
+                    line.startsWith('o=') || 
+                    line.startsWith('s=') || 
+                    line.startsWith('t=') || 
+                    line.startsWith('c=') || 
+                    line.startsWith('m=')) {
+                    return true;
+                }
+                
+                if (line.startsWith('a=group:') ||
+                    line.startsWith('a=mid:') ||
+                    line.startsWith('a=sctp-port:') ||
+                    line.startsWith('a=sctpmap:') ||
+                    line.startsWith('a=setup:') ||
+                    line.startsWith('a=ice-ufrag:') ||
+                    line.startsWith('a=ice-pwd:') ||
+                    line.startsWith('a=fingerprint:') ||
+                    line.startsWith('a=max-message-size:') ||
+                    line.startsWith('a=end-of-candidates')) {
+                    return true;
+                }
+                
+                if (line.startsWith('a=candidate:') && line.includes('typ host')) {
+                    return true;
+                }
+                
+                return false;
+            });
+            
+            return prunedLines.join('\r\n') + '\r\n';
+        }
+
+        function compressSDP(sdp) {
+            const pruned = pruneSDP(sdp);
+            const binarySdp = pako.deflate(pruned);
+            return uint8ToBase64(binarySdp);
+        }
+
+        function decompressSDP(compressed) {
+            const binarySdp = base64ToUint8(compressed);
+            const decompressed = pako.inflate(binarySdp, { to: 'string' });
+            return decompressed.replace(/\r?\n/g, '\r\n').trim() + '\r\n';
+        }
+
+        // ---------------------------------------------
+        // 8. FLIXS 分片與輪播 (SDP Carousel Generator)
+        // ---------------------------------------------
+        const SLICE_LIMIT = 140; 
+
+        function slicePayload(payload, sessionId) {
+            const total = Math.ceil(payload.length / SLICE_LIMIT);
+            const slices = [];
+            for (let i = 0; i < total; i++) {
+                const chunk = payload.substring(i * SLICE_LIMIT, (i + 1) * SLICE_LIMIT);
+                slices.push(`FLIXS:${sessionId}:${i}:${total}:${chunk}`);
+            }
+            return slices;
+        }
+
+        let carouselIntervalId = null;
+        let carouselSlices = [];
+        let carouselCurrentIdx = 0;
+        let isCarouselPlaying = true;
+        let carouselQrInstance = null;
+
+        function startSdpCarousel(slices, titleText, descText, actionBtnHtml = '') {
+            carouselSlices = slices;
+            carouselCurrentIdx = 0;
+            isCarouselPlaying = true;
+            
+            dom.carouselTitle.textContent = titleText;
+            dom.carouselDesc.textContent = descText;
+            dom.carouselTotal.textContent = slices.length;
+            dom.carouselActionBox.innerHTML = actionBtnHtml;
+
+            dom.carouselDots.innerHTML = "";
+            for (let i = 0; i < slices.length; i++) {
+                const dot = document.createElement('span');
+                dot.className = `w-2 h-2 rounded-full transition-colors duration-200 ${i === 0 ? 'bg-brand-500' : 'bg-gray-200 dark:bg-gray-800'}`;
+                dom.carouselDots.appendChild(dot);
+            }
+
+            dom.iconCarouselPause.classList.remove('hidden');
+            dom.iconCarouselPlay.classList.add('hidden');
+
+            renderCarouselSlide();
+            openModal(dom.sdpCarouselModal);
+
+            if (carouselIntervalId) clearInterval(carouselIntervalId);
+            carouselIntervalId = setInterval(nextCarouselSlide, 2200); 
+        }
+
+        function renderCarouselSlide() {
+            dom.carouselIndex.textContent = carouselCurrentIdx + 1;
+            const text = carouselSlices[carouselCurrentIdx];
+
+            dom.sdpQrcodeBox.innerHTML = "";
+            carouselQrInstance = new QRCode(dom.sdpQrcodeBox, {
+                text: text,
+                width: 192,
+                height: 192,
+                colorDark: "#030712",
+                colorLight: "#ffffff",
+                correctLevel: QRCode.CorrectLevel.M 
+            });
+
+            const dots = dom.carouselDots.querySelectorAll('span');
+            dots.forEach((dot, idx) => {
+                if (idx === carouselCurrentIdx) {
+                    dot.className = "w-2.5 h-2.5 rounded-full bg-brand-500 transition-all";
+                } else {
+                    dot.className = "w-2 h-2 rounded-full bg-gray-200 dark:bg-gray-800 transition-all";
+                }
+            });
+        }
+
+        function nextCarouselSlide() {
+            if (carouselSlices.length === 0) return;
+            carouselCurrentIdx = (carouselCurrentIdx + 1) % carouselSlices.length;
+            renderCarouselSlide();
+        }
+
+        function prevCarouselSlide() {
+            if (carouselSlices.length === 0) return;
+            carouselCurrentIdx = (carouselCurrentIdx - 1 + carouselSlices.length) % carouselSlices.length;
+            renderCarouselSlide();
+        }
+
+        dom.carouselPlayToggle.addEventListener('click', () => {
+            isCarouselPlaying = !isCarouselPlaying;
+            if (isCarouselPlaying) {
+                dom.iconCarouselPause.classList.remove('hidden');
+                dom.iconCarouselPlay.classList.add('hidden');
+                carouselIntervalId = setInterval(nextCarouselSlide, 2200);
+            } else {
+                dom.iconCarouselPause.classList.add('hidden');
+                dom.iconCarouselPlay.classList.remove('hidden');
+                if (carouselIntervalId) clearInterval(carouselIntervalId);
+            }
+        });
+
+        dom.carouselPrevBtn.addEventListener('click', () => {
+            if (carouselIntervalId && isCarouselPlaying) {
+                clearInterval(carouselIntervalId);
+                carouselIntervalId = setInterval(nextCarouselSlide, 2200);
+            }
+            prevCarouselSlide();
+        });
+
+        dom.carouselNextBtn.addEventListener('click', () => {
+            if (carouselIntervalId && isCarouselPlaying) {
+                clearInterval(carouselIntervalId);
+                carouselIntervalId = setInterval(nextCarouselSlide, 2200);
+            }
+            nextCarouselSlide();
+        });
+
+        dom.sdpCarouselModal.addEventListener('click', (e) => {
+            if (e.target === dom.sdpCarouselModal) {
+                closeModal(dom.sdpCarouselModal);
+                if (carouselIntervalId) clearInterval(carouselIntervalId);
+            }
+        });
+
+        // ---------------------------------------------
+        // 9. HUD 相機與 jsQR 即時解碼拼接 (FLIXS 接收器)
+        // ---------------------------------------------
+        let scannerStream = null;
+        let isScannerActive = false;
+        let expectedTotalPieces = 0;
+        let collectedPieces = {};
+        let lastScannedSessionId = null;
+
+        function startScanner(titleText, expectedRole) {
+            dom.scannerTitle.textContent = titleText;
+            dom.hudSegmentsBox.innerHTML = `<span class="text-xs text-gray-500">正在開啟後置相機中...</span>`;
+            dom.hudStatusText.textContent = "INITIALIZING CAMERA...";
+            
+            isScannerActive = true;
+            expectedTotalPieces = 0;
+            collectedPieces = {};
+            lastScannedSessionId = null;
+
+            openModal(dom.scannerModal);
+
+            navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
+                .then(stream => {
+                    scannerStream = stream;
+                    dom.scannerVideo.srcObject = stream;
+                    dom.scannerVideo.setAttribute("playsinline", true); 
+                    dom.scannerVideo.play();
+                    
+                    dom.scannerVideo.onloadedmetadata = () => {
+                        requestAnimationFrame(tickScanner);
+                    };
+                })
+                .catch(err => {
+                    console.error("相機開啟失敗:", err);
+                    showToast("開啟相機失敗，請確認是否給予相機權限！", "error");
+                    closeScanner();
+                });
+        }
+
+        function closeScanner() {
+            isScannerActive = false;
+            closeModal(dom.scannerModal);
+            
+            if (scannerStream) {
+                scannerStream.getTracks().forEach(track => track.stop());
+                scannerStream = null;
+            }
+            dom.scannerVideo.srcObject = null;
+        }
+
+        dom.closeScannerBtn.addEventListener('click', () => {
+            closeScanner();
+        });
+
+        function tickScanner() {
+            if (!isScannerActive) return;
+
+            const canvas = dom.scannerCanvas;
+            const video = dom.scannerVideo;
+            const ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+            if (video.readyState === video.HAVE_ENOUGH_DATA) {
+                if (canvas.width !== video.videoWidth) {
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                }
+
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+                const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                const code = jsQR(imageData.data, imageData.width, imageData.height, {
+                    inversionAttempts: "dontInvert",
+                });
+
+                const boxSize = Math.min(canvas.width, canvas.height) * 0.6;
+                const boxX = (canvas.width - boxSize) / 2;
+                const boxY = (canvas.height - boxSize) / 2;
+
+                ctx.strokeStyle = "#00bfa5"; 
+                ctx.lineWidth = 4;
+                ctx.strokeRect(boxX, boxY, boxSize, boxSize);
+                
+                ctx.fillStyle = "#00bfa5";
+                const cornerLen = 24;
+                ctx.fillRect(boxX - 2, boxY - 2, cornerLen, 6);
+                ctx.fillRect(boxX - 2, boxY - 2, 6, cornerLen);
+                
+                ctx.fillRect(boxX + boxSize - cornerLen + 2, boxY - 2, cornerLen, 6);
+                ctx.fillRect(boxX + boxSize - 4, boxY - 2, 6, cornerLen);
+                
+                ctx.fillRect(boxX - 2, boxY + boxSize - 4, cornerLen, 6);
+                ctx.fillRect(boxX - 2, boxY + boxSize - cornerLen + 2, 6, cornerLen);
+                
+                ctx.fillRect(boxX + boxSize - cornerLen + 2, boxY + boxSize - 4, cornerLen, 6);
+                ctx.fillRect(boxX + boxSize - 4, boxY + boxSize - cornerLen + 2, 6, cornerLen);
+
+                if (code) {
+                    const text = code.data;
+                    if (text.startsWith("FLIXS:")) {
+                        handleFlixsSegment(text);
+                    }
+                }
+            }
+
+            requestAnimationFrame(tickScanner);
+        }
+
+        function handleFlixsSegment(text) {
+            const parts = text.split(":");
+            if (parts.length < 5) return;
+
+            const sessionId = parts[1];
+            const idx = parseInt(parts[2]);
+            const total = parseInt(parts[3]);
+            const payload = parts[4];
+
+            if (lastScannedSessionId !== sessionId) {
+                lastScannedSessionId = sessionId;
+                expectedTotalPieces = total;
+                collectedPieces = {};
+                showToast("偵測到分段二維碼，啟動拼接...", "info");
+                playSuccessSound();
+            }
+
+            if (!collectedPieces[idx]) {
+                collectedPieces[idx] = payload;
+                updateHudUI();
+
+                let allPresent = true;
+                for (let i = 0; i < expectedTotalPieces; i++) {
+                    if (collectedPieces[i] === undefined) {
+                        allPresent = false;
+                        break;
+                    }
+                }
+
+                if (allPresent) {
+                    isScannerActive = false; 
+                    dom.hudStatusText.textContent = "DECODING COMPLETE!";
+                    playSuccessSound();
+
+                    setTimeout(() => {
+                        const compiledBase64 = reconstructFlixsPayload();
+                        const sdp = decompressSDP(compiledBase64);
+                        
+                        closeScanner();
+                        handleCompiledSdpReceived(sdp);
+                    }, 250);
+                }
+            }
+        }
+
+        function reconstructFlixsPayload() {
+            let full = "";
+            for (let i = 0; i < expectedTotalPieces; i++) {
+                full += collectedPieces[i];
+            }
+            return full;
+        }
+
+        function updateHudUI() {
+            dom.hudStatusText.textContent = `COLLECTING: ${Object.keys(collectedPieces).length} / ${expectedTotalPieces}`;
+            dom.hudSegmentsBox.innerHTML = "";
+
+            for (let i = 0; i < expectedTotalPieces; i++) {
+                const box = document.createElement('span');
+                if (collectedPieces[i]) {
+                    box.className = "px-2.5 py-1.5 bg-emerald-500 text-white font-bold rounded-lg text-xs flex items-center space-x-1 shadow-md shadow-emerald-500/10";
+                    box.innerHTML = `<span>✓</span>`;
+                } else {
+                    box.className = "px-2.5 py-1.5 bg-white/10 text-white/50 border border-white/20 font-bold rounded-lg text-xs";
+                    box.textContent = `${i + 1}`;
+                }
+                dom.hudSegmentsBox.appendChild(box);
+            }
+        }
+
+        // ---------------------------------------------
+        // 10. 離線原生的 WebRTC 狀態機與連線管理
+        // ---------------------------------------------
+        function initNativePeerConnection(isInitiator) {
+            cleanupOfflineConnection(); 
+
+            state.offlineRole = isInitiator ? 'initiator' : 'joiner';
+            
+            const config = {
+                iceServers: state.iceServers.length > 0 ? state.iceServers : [
+                    { urls: 'stun:stun.l.google.com:19302' }
+                ]
+            };
+
+            state.nativeConn = new RTCPeerConnection(config);
+
+            if (isInitiator) {
+                state.nativeDataChannel = state.nativeConn.createDataChannel("quicksend-offline-dc", { ordered: true });
+                setupNativeDataChannelListeners(state.nativeDataChannel);
+            } else {
+                state.nativeConn.ondatachannel = (e) => {
+                    state.nativeDataChannel = e.channel;
+                    setupNativeDataChannelListeners(state.nativeDataChannel);
+                };
+            }
+
+            state.nativeConn.onconnectionstatechange = () => {
+                const s = state.nativeConn.connectionState;
+                if (s === 'connected') {
+                    showToast("離線 P2P 隧道正式打通，現在可以高速傳輸檔案了！", "success");
+                    dom.offlineStatusBox.classList.remove('hidden');
+                    dom.offlineStatusText.textContent = "已連線 (直連不限速)";
+                    dom.offlineStatusText.className = "text-emerald-500 font-semibold mt-0.5";
+                } else if (s === 'disconnected' || s === 'failed' || s === 'closed') {
+                    showToast("離線隧道已斷開！", "error");
+                    dom.offlineStatusText.textContent = "連線已中斷";
+                    dom.offlineStatusText.className = "text-rose-500 font-semibold mt-0.5";
+                }
+            };
+        }
+
+        function setupNativeDataChannelListeners(dc) {
+            dc.onopen = () => {
+                sendP2PMessage({
+                    type: 'handshake',
+                    deviceName: state.name
+                });
+            };
+
+            dc.onmessage = (e) => {
+                let data = e.data;
+                try {
+                    data = JSON.parse(e.data);
+                    if (data.type === 'file-chunk' && data.isBase64) {
+                        data.chunk = base64ToUint8(data.chunk).buffer; 
+                    }
+                } catch(err) {}
+                handleIncomingData('offline-peer', data);
+            };
+
+            dc.onclose = () => {
+                console.log("Native DC closed.");
+            };
+        }
+
+        function cleanupOfflineConnection() {
+            if (state.nativeDataChannel) {
+                state.nativeDataChannel.close();
+                state.nativeDataChannel = null;
+            }
+            if (state.nativeConn) {
+                state.nativeConn.close();
+                state.nativeConn = null;
+            }
+            dom.offlineStatusBox.classList.add('hidden');
+        }
+
+        dom.offlineDisconnectBtn.addEventListener('click', () => {
+            cleanupOfflineConnection();
+            showToast("已主動關閉 P2P 直連頻道", "info");
+        });
+
+        // ---------------------------------------------
+        // 11. 離線按鈕發起端 (智慧 ICE 收集與 SDP 異步狀態鎖)
+        // ---------------------------------------------
+        dom.offlineInitiateBtn.addEventListener('click', () => {
+            initNativePeerConnection(true); 
+
+            state.offlineSessionId = Math.random().toString(36).substring(2, 6); 
+
+            let localSdpResolved = false;
+            let localSdpText = "";
+            let waitingForSdp = false;
+
+            state.nativeConn.createOffer()
+                .then(desc => state.nativeConn.setLocalDescription(desc))
+                .then(() => {
+                    localSdpResolved = true;
+                    localSdpText = state.nativeConn.localDescription.sdp;
+                    if (waitingForSdp) {
+                        triggerOfferGeneration();
+                    }
+                })
+                .catch(err => {
+                    showToast("建立 Offer 失敗: " + err.message, "error");
+                });
+
+            showToast("正在收集本地傳輸通道...", "info");
+            
+            let hasTriggered = false;
+            let timeoutId = null;
+
+            const triggerOfferGeneration = () => {
+                if (!localSdpResolved) {
+                    waitingForSdp = true;
+                    return; // 鎖定狀態：等待 setLocalDescription 完成
+                }
+                if (hasTriggered) return;
+                hasTriggered = true;
+                
+                if (timeoutId) clearTimeout(timeoutId);
+
+                const rawSdp = localSdpText;
+                const compressed = compressSDP(rawSdp);
+                
+                const slices = slicePayload(compressed, state.offlineSessionId);
+                
+                const scanBtnHtml = `
+                    <button id="btn-scan-answer" class="w-full bg-brand-500 hover:bg-brand-600 text-white font-bold py-3 rounded-xl text-sm transition-all shadow-md shadow-brand-500/15 flex items-center justify-center space-x-1">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z"></path></svg>
+                        <span>掃描對手的 Answer 二維碼</span>
+                    </button>
+                `;
+                
+                startSdpCarousel(slices, "手動離線: 傳送 Offer", "請對手用「加入端」相機掃描下方輪播二維碼", scanBtnHtml);
+
+                document.getElementById('btn-scan-answer').addEventListener('click', () => {
+                    closeModal(dom.sdpCarouselModal);
+                    if (carouselIntervalId) clearInterval(carouselIntervalId);
+                    startScanner("手動離線: 掃描 Answer", "initiator");
+                });
+            };
+
+            // 1.5 秒定時防呆 (確保最遲 1.5 秒一定生成)
+            timeoutId = setTimeout(() => {
+                console.log("ICE gathering timed out. Forcing Offer generation...");
+                triggerOfferGeneration();
+            }, 1500);
+
+            state.nativeConn.onicecandidate = (e) => {
+                if (e.candidate) {
+                    // ICE 收集開始
+                }
+            };
+
+            state.nativeConn.onicegatheringstatechange = () => {
+                if (state.nativeConn.iceGatheringState === 'complete') {
+                    console.log("ICE gathering completed naturally.");
+                    triggerOfferGeneration();
+                }
+            };
+        });
+
+        dom.offlineJoinBtn.addEventListener('click', () => {
+            initNativePeerConnection(false); 
+            startScanner("手動離線: 掃描 Offer", "joiner");
+        });
+
+        // ---------------------------------------------
+        // 12. 離線 SDP 解析與 Answer 輪播生成 (SDP 異步鎖修復)
+        // ---------------------------------------------
+        function handleCompiledSdpReceived(sdp) {
+            if (state.offlineRole === 'joiner') {
+                const offerDesc = new RTCSessionDescription({ type: 'offer', sdp: sdp });
+                
+                let localSdpResolved = false;
+                let localSdpText = "";
+                let waitingForSdp = false;
+
+                state.nativeConn.setRemoteDescription(offerDesc)
+                    .then(() => state.nativeConn.createAnswer())
+                    .then(desc => state.nativeConn.setLocalDescription(desc))
+                    .then(() => {
+                        localSdpResolved = true;
+                        localSdpText = state.nativeConn.localDescription.sdp;
+                        showToast("已成功解析 Offer，正在收集本地通道...", "info");
+                        if (waitingForSdp) {
+                            triggerAnswerGeneration();
+                        }
+                    })
+                    .catch(err => {
+                        showToast("加入端 SDP 交握失敗: " + err.message, "error");
+                    });
+
+                let hasTriggeredAnswer = false;
+                let timeoutIdAnswer = null;
+
+                const triggerAnswerGeneration = () => {
+                    if (!localSdpResolved) {
+                        waitingForSdp = true;
+                        return; // 鎖定狀態：等待 Answer setLocalDescription 完成
+                    }
+                    if (hasTriggeredAnswer) return;
+                    hasTriggeredAnswer = true;
+                    
+                    if (timeoutIdAnswer) clearTimeout(timeoutIdAnswer);
+
+                    const answerRawSdp = localSdpText;
+                    const answerCompressed = compressSDP(answerRawSdp);
+                    
+                    const answerSlices = slicePayload(answerCompressed, lastScannedSessionId);
+                    
+                    startSdpCarousel(answerSlices, "手動離線: 傳送 Answer", "請發起端對準下方輪播二維碼進行掃描", `
+                        <button class="close-modal-btn w-full bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 font-bold py-3 rounded-xl text-sm transition-all">關閉輪播</button>
+                    `);
+                };
+
+                timeoutIdAnswer = setTimeout(() => {
+                    console.log("Answer ICE gathering timed out. Forcing Answer generation...");
+                    triggerAnswerGeneration();
+                }, 1500);
+
+                state.nativeConn.onicegatheringstatechange = () => {
+                    if (state.nativeConn.iceGatheringState === 'complete') {
+                        console.log("Answer ICE gathering completed naturally.");
+                        triggerAnswerGeneration();
+                    }
+                };
+
+            } else if (state.offlineRole === 'initiator') {
+                const answerDesc = new RTCSessionDescription({ type: 'answer', sdp: sdp });
+                state.nativeConn.setRemoteDescription(answerDesc)
+                    .then(() => {
+                        showToast("Answer 寫入成功，直連通道正在交握建立...", "success");
+                    })
+                    .catch(err => {
+                        showToast("發起端寫入 Answer 失敗: " + err.message, "error");
+                    });
+            }
+        }
+
+        // ---------------------------------------------
+        // 13. P2P 雙模相容發送與封包統一介面
+        // ---------------------------------------------
+        function sendP2PMessage(obj) {
+            if (state.connectionMode === 'online') {
+                const conn = state.connections[state.activeOnlinePeerId];
+                if (conn && conn.open) {
+                    conn.send(obj);
+                }
+            } else {
+                if (state.nativeDataChannel && state.nativeDataChannel.readyState === 'open') {
+                    if (obj.type === 'file-chunk') {
+                        const uint8 = new Uint8Array(obj.chunk);
+                        const b64 = uint8ToBase64(uint8);
+                        const copy = { ...obj, chunk: b64, isBase64: true };
+                        state.nativeDataChannel.send(JSON.stringify(copy));
+                    } else {
+                        state.nativeDataChannel.send(JSON.stringify(obj));
+                    }
+                } else {
+                    showToast("傳輸通道未開啟，請確認是否成功建立了連線通道！", "error");
+                }
+            }
+        }
+
+        // ---------------------------------------------
+        // 14. PeerJS WebRTC 線上連線控制
+        // ---------------------------------------------
+        function initializePeer() {
+            setLoadingState("正在初始化連線...");
+            
+            const options = {
+                debug: 1,
+                config: {
+                    iceServers: state.iceServers.length > 0 ? state.iceServers : [
+                        { urls: 'stun:stun.l.google.com:19302' },
+                        { urls: 'stun:stun1.l.google.com:19302' },
+                        { urls: 'stun:stun2.l.google.com:19302' }
+                    ]
+                }
+            };
+
+            state.peer = new Peer(options);
+
+            state.peer.on('open', (id) => {
+                state.id = id;
+                dom.deviceIdDisplay.textContent = `ID: ${id}`;
+                if (state.connectionMode === 'online') {
+                    setOnlineState();
+                }
+                
+                const params = new URLSearchParams(window.location.search);
+                const targetId = params.get('peer');
+                if (targetId && targetId !== id) {
+                    showToast(`正在嘗試與分享連結中的裝置 [${targetId}] 配對...`, "info");
+                    dom.targetPeerId.value = targetId;
+                    initiateConnection(targetId);
+                    window.history.replaceState({}, document.title, window.location.pathname);
+                }
+            });
+
+            state.peer.on('connection', (conn) => {
+                setupConnectionListeners(conn);
+            });
+
+            state.peer.on('error', (err) => {
+                console.error("PeerJS 發生錯誤:", err);
+                setErrorState(err.message);
+                showToast(`信令伺服器連線失敗，請改用「離線手動」模式！`, "error");
+            });
+
+            state.peer.on('disconnected', () => {
+                setLoadingState("連線與伺服器中斷，正在重新連接...");
+                state.peer.reconnect();
+            });
+        }
+
+        function setLoadingState(msg) {
+            dom.statusDot.className = "w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse";
+            dom.statusText.textContent = msg;
+        }
+
+        function setOnlineState() {
+            dom.statusDot.className = "w-2.5 h-2.5 rounded-full bg-emerald-500";
+            dom.statusText.textContent = "在線 (等候配對)";
+        }
+
+        function setErrorState(msg) {
+            dom.statusDot.className = "w-2.5 h-2.5 rounded-full bg-rose-500";
+            dom.statusText.textContent = "連線異常";
+        }
+
+        function initiateConnection(peerId) {
+            if (!peerId) {
+                showToast("請輸入要連接的裝置 ID！", "error");
+                return;
+            }
+            if (peerId === state.id) {
+                showToast("不能連線至自己！", "error");
+                return;
+            }
+            if (state.connections[peerId]) {
+                showToast("已經與此裝置建立連線！", "info");
+                return;
+            }
+
+            showToast("正在嘗試發起連線配對...", "info");
+            const conn = state.peer.connect(peerId, { reliable: true });
+            setupConnectionListeners(conn);
+        }
+
+        dom.connectBtn.addEventListener('click', () => {
+            const rawInput = dom.targetPeerId.value.trim();
+            let targetId = rawInput;
+            
+            if (rawInput.includes('?peer=')) {
+                try {
+                    const tempUrl = new URL(rawInput);
+                    targetId = tempUrl.searchParams.get('peer');
+                } catch(e) {}
+            }
+            
+            initiateConnection(targetId);
+        });
+
+        function setupConnectionListeners(conn) {
+            state.connections[conn.peer] = conn;
+
+            conn.on('open', () => {
+                showToast(`已成功配對裝置！`, "success");
+                conn.send({
+                    type: 'handshake',
+                    deviceName: state.name
+                });
+                updateConnectedPeersUI();
+            });
+
+            conn.on('data', (data) => {
+                handleIncomingData(conn.peer, data);
+            });
+
+            conn.on('close', () => {
+                showToast("裝置與您中斷配對", "info");
+                delete state.connections[conn.peer];
+                delete state.discoveredPeers[conn.peer];
+                updateConnectedPeersUI();
+            });
+
+            conn.on('error', (err) => {
+                console.error("Data connection error:", err);
+                showToast("連線中斷或發生錯誤", "error");
+                delete state.connections[conn.peer];
+                delete state.discoveredPeers[conn.peer];
+                updateConnectedPeersUI();
+            });
+        }
+
+        function broadcastName() {
+            Object.values(state.connections).forEach(conn => {
+                if (conn.open) {
+                    conn.send({
+                        type: 'name-change',
+                        deviceName: state.name
+                    });
+                }
+            });
+        }
+
+        function updateConnectedPeersUI() {
+            const count = Object.keys(state.connections).length;
+            dom.activePeersCount.textContent = `${count} 個`;
+            
+            if (count === 0) {
+                dom.noPeersText.classList.remove('hidden');
+                dom.activePeersList.querySelectorAll('.peer-item').forEach(x => x.remove());
+                return;
+            }
+
+            dom.noPeersText.classList.add('hidden');
+            dom.activePeersList.querySelectorAll('.peer-item').forEach(x => x.remove());
+            
+            Object.keys(state.connections).forEach(peerId => {
+                const peerInfo = state.discoveredPeers[peerId] || { name: "配對中的裝置...", avatarColor: "bg-gray-200" };
+                const firstChar = peerInfo.name.substring(0, 1);
+                
+                const peerDiv = document.createElement('div');
+                peerDiv.className = "peer-item flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 transition-all hover:bg-white dark:hover:bg-gray-950";
+                
+                let avatarStyle = "";
+                if (peerInfo.avatarColor && peerInfo.avatarColor.includes('hsl')) {
+                    avatarStyle = `style="background-color: ${peerInfo.avatarColor}; filter: brightness(1.1);"`;
+                }
+
+                peerDiv.innerHTML = `
+                    <div class="flex items-center space-x-3 overflow-hidden mr-2">
+                        <div class="w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm" ${avatarStyle}>
+                            ${firstChar}
+                        </div>
+                        <div class="truncate">
+                            <h4 class="font-bold text-xs text-gray-700 dark:text-gray-200 truncate">${peerInfo.name}</h4>
+                            <p class="text-[10px] text-gray-400 font-mono mt-0.5 truncate">${peerId}</p>
+                        </div>
+                    </div>
+                    <div class="flex items-center space-x-1 flex-shrink-0">
+                        <span class="w-2 h-2 rounded-full bg-emerald-500 mr-2"></span>
+                        <button class="select-target-peer px-3 py-1.5 bg-brand-500 hover:bg-brand-600 text-white font-bold text-[10px] rounded-lg shadow-sm" data-id="${peerId}">
+                            選中
+                        </button>
+                    </div>
+                `;
+                
+                peerDiv.querySelector('.select-target-peer').addEventListener('click', (e) => {
+                    const selectedId = e.currentTarget.getAttribute('data-id');
+                    dom.targetPeerId.value = selectedId;
+                    state.activeOnlinePeerId = selectedId;
+                    showToast(`已選定接收者: ${state.discoveredPeers[selectedId]?.name || selectedId}`, "info");
+                });
+
+                dom.activePeersList.appendChild(peerDiv);
+            });
+        }
+
+        // ---------------------------------------------
+        // 15. 智慧型 WebRTC 數據分配調度中心 (搭載 256KB 切片標準)
+        // ---------------------------------------------
+        const CHUNK_SIZE = 262144; 
+
+        function handleIncomingData(senderPeerId, data) {
+            if (!data || !data.type) return;
+
+            switch(data.type) {
+                case 'handshake':
+                case 'name-change':
+                    let hash = 0;
+                    for (let i = 0; i < data.deviceName.length; i++) {
+                        hash = data.deviceName.charCodeAt(i) + ((hash << 5) - hash);
+                    }
+                    const hue = Math.abs(hash % 360);
+                    
+                    state.discoveredPeers[senderPeerId] = {
+                        name: data.deviceName,
+                        avatarColor: `hsl(${hue}, 70%, 85%)`
+                    };
+                    updateConnectedPeersUI();
+                    
+                    if (state.connectionMode === 'offline') {
+                        showToast(`已成功配對離線裝置：${data.deviceName}`, "success");
+                    }
+                    break;
+
+                case 'file-request':
+                    showIncomingRequestModal(senderPeerId, data.files, data.requestId);
+                    break;
+
+                case 'file-request-response':
+                    handleFileRequestResponse(senderPeerId, data);
+                    break;
+
+                case 'file-header':
+                    initiateFileReceiver(senderPeerId, data);
+                    break;
+
+                case 'file-chunk':
+                    receiveFileChunk(data);
+                    break;
+
+                case 'file-eof':
+                    const fileData = state.receivedChunks[data.fileId];
+                    if (fileData) {
+                        fileData.eofReceived = true;
+                        if (fileData.savedChunksCount === fileData.totalChunksExpected) {
+                            assembleReceivedFile(data.fileId);
+                        }
+                    }
+                    break;
+            }
+        }
+
+        // ---------------------------------------------
+        // 16. 發送檔案端流程 (Sender - 256KB 智慧流控滑動窗口)
+        // ---------------------------------------------
+        let currentSendingRequest = null;
+
+        function getActiveDataChannel() {
+            if (state.connectionMode === 'online') {
+                const conn = state.connections[state.activeOnlinePeerId];
+                if (!conn) return null;
+                return conn.dataChannel || conn._dc;
+            } else {
+                return state.nativeDataChannel;
+            }
+        }
+
+        dom.startSendBtn.addEventListener('click', () => {
+            const targetId = dom.targetPeerId.value.trim();
+            
+            if (state.connectionMode === 'online') {
+                if (!targetId || !state.connections[targetId]) {
+                    showToast("請先在左側填入有效的接收者裝置並進行連接！", "error");
+                    return;
+                }
+                state.activeOnlinePeerId = targetId;
+            } else {
+                if (!state.nativeDataChannel || state.nativeDataChannel.readyState !== 'open') {
+                    showToast("離線通道未連線！請先按照左側提示交握。", "error");
+                    return;
+                }
+            }
+
+            if (state.fileQueue.length === 0) {
+                showToast("您的待傳送佇列是空的！請先選擇檔案。", "error");
+                return;
+            }
+
+            const requestId = crypto.randomUUID();
+            currentSendingRequest = {
+                requestId: requestId,
+                targetId: state.connectionMode === 'online' ? targetId : 'offline-peer',
+                files: state.fileQueue.map(item => ({
+                    id: item.id,
+                    name: item.name,
+                    size: item.size,
+                    type: item.type
+                }))
+            };
+
+            showToast("已送出傳輸請求，等候對手接受...", "info");
+            
+            sendP2PMessage({
+                type: 'file-request',
+                requestId: requestId,
+                files: currentSendingRequest.files
+            });
+        });
+
+        function handleFileRequestResponse(peerId, data) {
+            if (!currentSendingRequest || currentSendingRequest.requestId !== data.requestId) return;
+
+            if (!data.accepted) {
+                showToast("傳輸請求被對手拒絕", "error");
+                currentSendingRequest = null;
+                return;
+            }
+
+            showToast("對手已接受檔案傳送，啟動傳輸通道...", "success");
+            startSequentialTransfer();
+        }
+
+        async function startSequentialTransfer() {
+            state.transferQueue = [...state.fileQueue];
+            state.fileQueue = [];
+            renderQueue();
+
+            sendNextFileInQueue();
+        }
+
+        function sendNextFileInQueue() {
+            if (state.transferQueue.length === 0) {
+                showToast("所有檔案傳輸已全部完成！", "success");
+                playSuccessSound();
+                dom.transferProgressCard.classList.add('hidden');
+                state.activeTransfer = null;
+                return;
+            }
+
+            const currentJob = state.transferQueue.shift();
+            const file = currentJob.file;
+            const fileId = currentJob.id;
+            
+            dom.transferProgressCard.classList.remove('hidden');
+            dom.transferDirectionBadge.textContent = "傳送中";
+            
+            const targetName = state.connectionMode === 'online' 
+                ? (state.discoveredPeers[state.activeOnlinePeerId]?.name || state.activeOnlinePeerId)
+                : (state.discoveredPeers['offline-peer']?.name || '離線裝置');
+
+            dom.transferTargetDevice.textContent = `對手裝置：${targetName}`;
+            dom.transferFilename.textContent = file.name;
+            
+            addHistoryRecord('send', file.name, file.size, state.connectionMode === 'online' ? state.activeOnlinePeerId : 'offline-peer', 'processing', fileId);
+
+            sendP2PMessage({
+                type: 'file-header',
+                fileId: fileId,
+                name: file.name,
+                size: file.size,
+                mime: file.type
+            });
+
+            const reader = new FileReader();
+            let offset = 0;
+            let chunkIndex = 0;
+            let startTime = Date.now();
+            let lastUpdate = Date.now();
+            let lastBytes = 0;
+
+            state.activeTransfer = {
+                fileId: fileId,
+                file: file,
+                cancelled: false
+            };
+
+            const dc = getActiveDataChannel();
+            if (dc) {
+                dc.bufferedAmountLowThreshold = 262144; // 設置 256KB 低水位限額
+            }
+
+            const sendChunk = () => {
+                if (state.activeTransfer?.cancelled) return;
+
+                const activeDc = getActiveDataChannel();
+                if (!activeDc || activeDc.readyState !== 'open') {
+                    showToast("通道意外關閉，暫停發送", "error");
+                    return;
+                }
+
+                if (offset >= file.size) {
+                    sendP2PMessage({
+                        type: 'file-eof',
+                        fileId: fileId
+                    });
+                    updateHistoryRecordStatus(fileId, 'completed');
+                    setTimeout(sendNextFileInQueue, 300);
+                    return;
+                }
+
+                // 💥 iOS 智慧滑動窗口流控：限制緩衝水位 512KB，防止內存崩潰
+                if (activeDc.bufferedAmount > 524288) { 
+                    activeDc.onbufferedamountlow = () => {
+                        activeDc.onbufferedamountlow = null;
+                        sendChunk();
+                    };
+                    return;
+                }
+
+                const slice = file.slice(offset, offset + CHUNK_SIZE);
+                reader.onload = (e) => {
+                    sendP2PMessage({
+                        type: 'file-chunk',
+                        fileId: fileId,
+                        chunk: e.target.result,
+                        index: chunkIndex
+                    });
+
+                    offset += CHUNK_SIZE;
+                    chunkIndex++;
+
+                    const now = Date.now();
+                    const durationSinceLast = (now - lastUpdate) / 1000;
+                    if (durationSinceLast >= 0.5) {
+                        const bytesSentSinceLast = offset - lastBytes;
+                        const speed = bytesSentSinceLast / durationSinceLast;
+                        const totalDuration = (now - startTime) / 1000;
+                        const avgSpeed = offset / totalDuration;
+                        const remainingBytes = file.size - offset;
+                        const eta = avgSpeed > 0 ? Math.ceil(remainingBytes / avgSpeed) : 0;
+
+                        dom.transferRate.textContent = `${(speed / (1024 * 1024)).toFixed(2)} MB/s`;
+                        dom.transferEta.textContent = `剩餘時間：約 ${eta} 秒`;
+
+                        lastUpdate = now;
+                        lastBytes = offset;
+                    }
+
+                    const percent = Math.min(100, Math.ceil((offset / file.size) * 100));
+                    dom.transferPercentage.textContent = `${percent}%`;
+                    dom.transferProgressBar.style.width = `${percent}%`;
+                    dom.transferBytesRatio.textContent = `${formatBytes(offset)} / ${formatBytes(file.size)}`;
+
+                    sendChunk();
+                };
+                reader.readAsArrayBuffer(slice);
+            };
+
+            sendChunk();
+        }
+
+        // ---------------------------------------------
+        // 17. 接收檔案端流程 (Receiver - IndexedDB 零內存重組)
+        // ---------------------------------------------
+        let currentIncomingRequest = null;
+
+        function showIncomingRequestModal(senderPeerId, files, requestId) {
+            currentIncomingRequest = {
+                senderId: senderPeerId,
+                requestId: requestId,
+                files: files
+            };
+
+            const senderName = state.discoveredPeers[senderPeerId]?.name || (state.connectionMode === 'offline' ? '離線配對裝置' : senderPeerId);
+            dom.reqSenderName.textContent = senderName;
+            dom.reqFileCount.textContent = `${files.length} 個檔案`;
+            dom.reqFileList.innerHTML = '';
+            
+            let totalBytes = 0;
+            files.forEach(f => {
+                totalBytes += f.size;
+                const fileLi = document.createElement('div');
+                fileLi.className = "flex justify-between items-center text-xs py-1.5 border-b border-gray-100 dark:border-gray-800/50 last:border-0";
+                fileLi.innerHTML = `
+                    <span class="font-semibold text-gray-700 dark:text-gray-300 truncate max-w-[240px]" title="${f.name}">${f.name}</span>
+                    <span class="font-bold text-gray-400 font-mono">${formatBytes(f.size)}</span>
+                `;
+                dom.reqFileList.appendChild(fileLi);
+            });
+
+            dom.reqTotalSize.textContent = formatBytes(totalBytes);
+            openModal(dom.receiveRequestModal);
+        }
+
+        dom.rejectTransferBtn.addEventListener('click', () => {
+            if (!currentIncomingRequest) return;
+            sendP2PMessage({
+                type: 'file-request-response',
+                requestId: currentIncomingRequest.requestId,
+                accepted: false
+            });
+            closeModal(dom.receiveRequestModal);
+            currentIncomingRequest = null;
+        });
+
+        dom.acceptTransferBtn.addEventListener('click', () => {
+            if (!currentIncomingRequest) return;
+            sendP2PMessage({
+                type: 'file-request-response',
+                requestId: currentIncomingRequest.requestId,
+                accepted: true
+            });
+            closeModal(dom.receiveRequestModal);
+            
+            currentIncomingRequest.files.forEach(f => {
+                addHistoryRecord('receive', f.name, f.size, currentIncomingRequest.senderId, 'processing', f.id);
+            });
+            showToast("已接受，正在建立連線下載檔案...", "success");
+        });
+
+        function initiateFileReceiver(senderPeerId, header) {
+            state.receivedChunks[header.fileId] = {
+                name: header.name,
+                size: header.size,
+                mime: header.mime,
+                senderId: senderPeerId,
+                savedChunksCount: 0,
+                receivedBytes: 0,
+                startTime: Date.now(),
+                lastUpdate: Date.now(),
+                lastBytes: 0,
+                eofReceived: false,
+                totalChunksExpected: Math.ceil(header.size / CHUNK_SIZE)
+            };
+
+            dom.transferProgressCard.classList.remove('hidden');
+            dom.transferDirectionBadge.textContent = "接收中";
+            
+            const senderName = state.connectionMode === 'online' 
+                ? (state.discoveredPeers[senderPeerId]?.name || senderPeerId)
+                : (state.discoveredPeers['offline-peer']?.name || '離線裝置');
+
+            dom.transferTargetDevice.textContent = `來源裝置：${senderName}`;
+            dom.transferFilename.textContent = header.name;
+        }
+
+        function receiveFileChunk(packet) {
+            const fileData = state.receivedChunks[packet.fileId];
+            if (!fileData) return;
+
+            // 💥 零內存優化：不保存於網頁記憶體，直接流式寫入 IndexedDB 實體磁碟
+            saveChunkToDisk(packet.fileId, packet.index, packet.chunk).then(() => {
+                fileData.savedChunksCount++;
+                fileData.receivedBytes += packet.chunk.byteLength;
+
+                const now = Date.now();
+                const durationSinceLast = (now - fileData.lastUpdate) / 1000;
+                if (durationSinceLast >= 0.5) {
+                    const bytesInPeriod = fileData.receivedBytes - fileData.lastBytes;
+                    const speed = bytesInPeriod / durationSinceLast;
+                    const totalDuration = (now - fileData.startTime) / 1000;
+                    const avgSpeed = fileData.receivedBytes / totalDuration;
+                    const remainingBytes = fileData.size - fileData.receivedBytes;
+                    const eta = avgSpeed > 0 ? Math.ceil(remainingBytes / avgSpeed) : 0;
+
+                    dom.transferRate.textContent = `${(speed / (1024 * 1024)).toFixed(2)} MB/s`;
+                    dom.transferEta.textContent = `剩餘時間：約 ${eta} 秒`;
+
+                    fileData.lastUpdate = now;
+                    fileData.lastBytes = fileData.receivedBytes;
+                }
+
+                const percent = Math.min(100, Math.ceil((fileData.receivedBytes / fileData.size) * 100));
+                dom.transferPercentage.textContent = `${percent}%`;
+                dom.transferProgressBar.style.width = `${percent}%`;
+                dom.transferBytesRatio.textContent = `${formatBytes(fileData.receivedBytes)} / ${formatBytes(fileData.size)}`;
+
+                // 檢查是否所有分片皆已在磁碟保存完畢
+                if (fileData.eofReceived && fileData.savedChunksCount === fileData.totalChunksExpected) {
+                    assembleReceivedFile(packet.fileId);
+                }
+            }).catch(err => {
+                console.error("IndexedDB 寫入故障:", err);
+                showToast("手機存儲磁碟寫入失敗", "error");
+            });
+        }
+
+        async function assembleReceivedFile(fileId) {
+            const fileData = state.receivedChunks[fileId];
+            if (!fileData) return;
+
+            dom.transferProgressCard.classList.add('hidden');
+            showToast("正在建立安全鏈結指針中...", "info");
+
+            try {
+                // 從 IndexedDB 抽取虛擬 Blob 指針 (幾十位元組)
+                const chunkBlobs = await getChunksFromDisk(fileId, fileData.totalChunksExpected);
+                
+                // 💥 零內存重組：透過虛擬指針樹直接拼裝 (恆定 1MB 內存消耗)
+                const finalBlob = new Blob(chunkBlobs, { type: fileData.mime });
+                
+                // 立即切斷並抹除 chunkBlobs 原始陣列引用
+                for (let i = 0; i < chunkBlobs.length; i++) {
+                    chunkBlobs[i] = null;
+                }
+
+                const downloadUrl = URL.createObjectURL(finalBlob);
+                updateHistoryRecordStatus(fileId, 'completed', downloadUrl);
+
+                // 💥 80MB 智慧安全防禦：iOS 大檔案禁用 Share API，引導至 Safari 背景下載
+                const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+                if (isIOS && fileData.size >= 83886080) { // 80 MB
+                    showToast("檔案較大，請點擊 Safari [下載項目] 以儲存至「檔案」App", "success", 6000);
+                }
+
+                const downloadLink = document.createElement('a');
+                downloadLink.href = downloadUrl;
+                downloadLink.download = fileData.name;
+                document.body.appendChild(downloadLink);
+                downloadLink.click();
+                document.body.removeChild(downloadLink);
+
+                showToast(`成功接收並下載: ${fileData.name}`, "success");
+                playSuccessSound();
+
+                // 立即清空 IndexedDB 暫存區
+                await clearChunksFromDisk(fileId, fileData.totalChunksExpected);
+
+                // 💥 延時即時 Revoke 撤銷對象網址
+                setTimeout(() => {
+                    URL.revokeObjectURL(downloadUrl);
+                }, 2000);
+
+            } catch (e) {
+                console.error("檔案組合故障:", e);
+                showToast("組合檔案失敗，請確認磁碟空間！", "error");
+            }
+
+            delete state.receivedChunks[fileId];
+        }
+
+        // ---------------------------------------------
+        // 18. 檔案準備與佇列控制 (Drag & Drop)
+        // ---------------------------------------------
+        function handleFilesSelected(files) {
+            for (let file of files) {
+                const queueItem = {
+                    file: file,
+                    id: crypto.randomUUID(),
+                    size: file.size,
+                    name: file.name,
+                    type: file.type || 'application/octet-stream'
+                };
+                state.fileQueue.push(queueItem);
+            }
+            renderQueue();
+            dom.tabSend.click();
+        }
+
+        dom.dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dom.dropZone.classList.add('border-brand-500', 'bg-brand-50/20', 'dark:bg-brand-500/5');
+        });
+
+        dom.dropZone.addEventListener('dragleave', () => {
+            dom.dropZone.classList.remove('border-brand-500', 'bg-brand-50/20', 'dark:bg-brand-500/5');
+        });
+
+        dom.dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dom.dropZone.classList.remove('border-brand-500', 'bg-brand-50/20', 'dark:bg-brand-500/5');
+            if (e.dataTransfer.files.length > 0) {
+                handleFilesSelected(e.dataTransfer.files);
+            }
+        });
+
+        dom.fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                handleFilesSelected(e.target.files);
+            }
+        });
+
+        function renderQueue() {
+            if (state.fileQueue.length === 0) {
+                dom.fileQueueCard.classList.add('hidden');
+                return;
+            }
+            dom.fileQueueCard.classList.remove('hidden');
+            dom.queueCount.textContent = state.fileQueue.length;
+            dom.queueList.innerHTML = '';
+            
+            let totalBytes = 0;
+
+            state.fileQueue.forEach(item => {
+                totalBytes += item.size;
+                const fileDiv = document.createElement('div');
+                fileDiv.className = "flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-900 rounded-2xl text-xs border border-gray-100 dark:border-gray-800";
+                fileDiv.innerHTML = `
+                    <div class="flex items-center space-x-3 overflow-hidden mr-2">
+                        <div class="p-2 bg-brand-50 dark:bg-brand-500/10 text-brand-500 rounded-xl flex-shrink-0">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                            </svg>
+                        </div>
+                        <div class="truncate">
+                            <p class="font-bold text-gray-700 dark:text-gray-200 truncate" title="${item.name}">${item.name}</p>
+                            <p class="text-gray-400 mt-0.5 font-semibold">${formatBytes(item.size)}</p>
+                        </div>
+                    </div>
+                    <button class="remove-queue-item p-1.5 hover:bg-rose-50 dark:hover:bg-rose-950/30 text-gray-400 hover:text-rose-500 rounded-lg transition-colors" data-id="${item.id}">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="width: 20px; height: 20px; min-width: 20px; min-height: 20px;">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                    </button>
+                `;
+                dom.queueList.appendChild(fileDiv);
+            });
+
+            dom.queueTotalSize.textContent = formatBytes(totalBytes);
+
+            dom.queueList.querySelectorAll('.remove-queue-item').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    const itemId = e.currentTarget.getAttribute('data-id');
+                    state.fileQueue = state.fileQueue.filter(x => x.id !== itemId);
+                    renderQueue();
+                });
+            });
+        }
+
+        dom.clearQueueBtn.addEventListener('click', () => {
+            state.fileQueue = [];
+            renderQueue();
+            showToast("待傳送佇列已清空", "info");
+        });
+
+        // ---------------------------------------------
+        // 19. 傳輸歷史紀錄儲存機制
+        // ---------------------------------------------
+        let historyRecords = [];
+
+        function addHistoryRecord(direction, filename, size, peerId, status, id) {
+            const peerName = state.discoveredPeers[peerId]?.name || (peerId === 'offline-peer' ? '離線配對裝置' : peerId);
+            
+            const record = {
+                id: id,
+                direction: direction,
+                filename: filename,
+                size: size,
+                peerName: peerName,
+                status: status,
+                time: new Date().toLocaleTimeString(),
+                downloadUrl: null
+            };
+
+            historyRecords.unshift(record);
+            renderHistoryUI();
+        }
+
+        function updateHistoryRecordStatus(id, newStatus, downloadUrl = null) {
+            const r = historyRecords.find(x => x.id === id);
+            if (r) {
+                r.status = newStatus;
+                if (downloadUrl) r.downloadUrl = downloadUrl;
+                renderHistoryUI();
+            }
+        }
+
+        function renderHistoryUI() {
+            if (historyRecords.length === 0) {
+                dom.noHistoryText.classList.remove('hidden');
+                dom.historyList.innerHTML = '';
+                return;
+            }
+
+            dom.noHistoryText.classList.add('hidden');
+            dom.historyList.innerHTML = '';
+
+            historyRecords.forEach(item => {
+                const itemDiv = document.createElement('div');
+                itemDiv.className = "p-3 bg-gray-50 dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 text-xs flex items-center justify-between";
+                
+                let iconColor = item.direction === 'send' ? 'text-amber-500 bg-amber-50 dark:bg-amber-500/10' : 'text-emerald-500 bg-emerald-50 dark:bg-emerald-500/10';
+                let iconPath = item.direction === 'send' 
+                    ? `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />`
+                    : `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />`;
+
+                let actionHtml = '';
+                if (item.status === 'processing') {
+                    actionHtml = `<span class="text-brand-500 font-bold animate-pulse">傳輸中...</span>`;
+                } else if (item.status === 'completed') {
+                    if (item.direction === 'receive' && item.downloadUrl) {
+                        actionHtml = `<a href="${item.downloadUrl}" download="${item.filename}" class="px-3 py-1 bg-brand-500 hover:bg-brand-600 text-white font-semibold rounded-lg text-[10px]">保存</a>`;
+                    } else {
+                        actionHtml = `<span class="text-gray-400 font-semibold flex items-center"><svg class="w-4 h-4 text-emerald-500 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>完成</span>`;
+                    }
+                }
+
+                itemDiv.innerHTML = `
+                    <div class="flex items-center space-x-3 overflow-hidden mr-2">
+                        <div class="p-2 rounded-xl ${iconColor} flex-shrink-0">
+                            <svg xmlns="http://www.w3.org/2000/xl" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="width: 20px; height: 20px;">
+                                ${iconPath}
+                            </svg>
+                        </div>
+                        <div class="truncate">
+                            <p class="font-bold text-gray-700 dark:text-gray-200 truncate" title="${item.filename}">${item.filename}</p>
+                            <p class="text-gray-400 mt-0.5 font-medium">大小: ${formatBytes(item.size)} | 對象: ${item.peerName} | 於 ${item.time}</p>
+                        </div>
+                    </div>
+                    <div class="flex-shrink-0">
+                        ${actionHtml}
+                    </div>
+                `;
+                dom.historyList.appendChild(itemDiv);
+            });
+        }
+
+        dom.clearHistoryBtn.addEventListener('click', () => {
+            historyRecords = [];
+            renderHistoryUI();
+            showToast("歷史紀錄已清空", "info");
+        });
+
+        // ---------------------------------------------
+        // 20. 工作區 Tab 切換
+        // ---------------------------------------------
+        dom.tabSend.addEventListener('click', () => {
+            dom.tabSend.className = "flex-1 py-3 text-center font-bold text-sm rounded-2xl bg-brand-50 dark:bg-brand-500/10 text-brand-600 dark:text-brand-400 transition-all flex items-center justify-center space-x-2";
+            dom.tabHistory.className = "flex-1 py-3 text-center font-semibold text-sm rounded-2xl text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-all flex items-center justify-center space-x-2";
+            dom.sendPanel.classList.remove('hidden');
+            dom.historyPanel.classList.add('hidden');
+        });
+
+        dom.tabHistory.addEventListener('click', () => {
+            dom.tabHistory.className = "flex-1 py-3 text-center font-bold text-sm rounded-2xl bg-brand-50 dark:bg-brand-500/10 text-brand-600 dark:text-brand-400 transition-all flex items-center justify-center space-x-2";
+            dom.tabSend.className = "flex-1 py-3 text-center font-semibold text-sm rounded-2xl text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-all flex items-center justify-center space-x-2";
+            dom.historyPanel.classList.remove('hidden');
+            dom.sendPanel.classList.add('hidden');
+        });
+
+        // ---------------------------------------------
+        // 21. 高相容「複製連結至剪貼簿」方案
+        // ---------------------------------------------
+        function copyToClipboard(text) {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).then(() => {
+                    showToast("已成功複製配對連結！", "success");
+                }).catch(err => {
+                    fallbackCopy(text);
+                });
+            } else {
+                fallbackCopy(text);
+            }
+        }
+
+        function fallbackCopy(text) {
+            const textArea = document.createElement("textarea");
+            textArea.value = text;
+            textArea.style.position = "fixed"; 
+            textArea.style.left = "-999999px";
+            textArea.style.top = "-999999px";
+            document.body.appendChild(textArea);
+            textArea.focus();
+            textArea.select();
+            try {
+                document.execCommand('copy');
+                showToast("已成功複製配對連結！", "success");
+            } catch (err) {
+                showToast("複製連結失敗，請手動複製", "error");
+            }
+            document.body.removeChild(textArea);
+        }
+
+        // ---------------------------------------------
+        // 22. iPhone 個人熱點智慧探針 (物理級 IP 簽章特徵識別)
+        // ---------------------------------------------
+        function runHotspotDetector() {
+            try {
+                const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+                pc.createDataChannel("hotspot-probe");
+                pc.onicecandidate = (e) => {
+                    if (e.candidate && e.candidate.candidate) {
+                        const candidateStr = e.candidate.candidate;
+                        if (candidateStr.includes('172.20.10.')) {
+                            const isHost = candidateStr.includes('172.20.10.1');
+                            const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+                            triggerHotspotBanner(isIOS && isHost ? 'host' : 'client');
+                        }
+                    }
+                };
+                pc.createOffer().then(offer => pc.setLocalDescription(offer));
+                setTimeout(() => pc.close(), 6000);
+            } catch (err) {
+                console.warn("熱點探針初始化失敗:", err);
+            }
+        }
+
+        function triggerHotspotBanner(role) {
+            dom.hotspotBannerContainer.classList.remove('hidden');
+            if (role === 'host') {
+                dom.hotspotBanner.className = "rounded-3xl p-4 border border-emerald-200 dark:border-emerald-900 bg-emerald-50 dark:bg-emerald-950/30 transition-all duration-300 flex items-start space-x-3 shadow-sm";
+                dom.hotspotBanner.innerHTML = `
+                    <span class="text-xl">📱</span>
+                    <div>
+                        <p class="font-bold text-emerald-800 dark:text-emerald-200 text-xs">智慧提醒：檢測到本機正在分享「iPhone 個人熱點」</p>
+                        <p class="mt-1 text-[11px] text-emerald-700 dark:text-emerald-300/90 leading-relaxed">受限於 iOS 熱點防火牆單向防禦機制，對手設備無法跨越防火牆主動呼叫您。<strong>請務必由您（本機）主動輸入對方的 ID 或主動掃描對方二維碼發起連線。</strong></p>
+                    </div>
+                `;
+            } else {
+                dom.hotspotBanner.className = "rounded-3xl p-4 border border-amber-200 dark:border-amber-900 bg-amber-50 dark:bg-amber-950/30 transition-all duration-300 flex items-start space-x-3 shadow-sm";
+                dom.hotspotBanner.innerHTML = `
+                    <span class="text-xl">⚠️</span>
+                    <div>
+                        <p class="font-bold text-amber-800 dark:text-amber-200 text-xs">智慧提醒：檢測到您已連入「iPhone 個人熱點」</p>
+                        <p class="mt-1 text-[11px] text-amber-700 dark:text-amber-300/90 leading-relaxed">受限於 iOS 熱點防火牆單向阻斷限制，您的呼叫將被熱點發佈端防禦。<strong>請將本機的配對碼/連結提供給「分享熱點者」，並請其主動發起連線。</strong></p>
+                    </div>
+                `;
+            }
+        }
+
+        // ---------------------------------------------
+        // 23. 全域啟動與事件監聽器註冊
+        // ---------------------------------------------
+        window.addEventListener('load', () => {
+            initializePeer();
+            runHotspotDetector(); // 自動拉起熱點偵測
+
+            dom.settingIceConfig.placeholder = '[{"urls":"stun:stun.l.google.com:19302"}]';
+
+            dom.copyLinkBtn.addEventListener('click', () => {
+                if (!state.id) {
+                    showToast("連線尚未初始化完成，請稍後再試", "error");
+                    return;
+                }
+                const shareUrl = window.location.origin + window.location.pathname + "?peer=" + state.id;
+                copyToClipboard(shareUrl);
+            });
+
+            dom.showQrBtn.addEventListener('click', () => {
+                if (!state.id) {
+                    showToast("連線尚未初始化完成，請稍後再試", "error");
+                    return;
+                }
+                const shareUrl = window.location.origin + window.location.pathname + "?peer=" + state.id;
+                
+                const qrcodeContainer = document.getElementById('qrcode');
+                qrcodeContainer.innerHTML = "";
+                new QRCode(qrcodeContainer, {
+                    text: shareUrl,
+                    width: 192,
+                    height: 192,
+                    colorDark: "#030712",
+                    colorLight: "#ffffff",
+                    correctLevel: QRCode.CorrectLevel.M
+                });
+                
+                openModal(dom.qrModal);
+            });
+
+            dom.settingsBtn.addEventListener('click', () => {
+                dom.settingDeviceName.value = state.name;
+                dom.settingSoundToggle.checked = state.soundEnabled;
+                dom.settingIceConfig.value = JSON.stringify(state.iceServers);
+                openModal(dom.settingsModal);
+            });
+
+            document.getElementById('edit-name-btn').addEventListener('click', () => {
+                dom.settingsBtn.click();
+            });
+
+            dom.saveSettingsBtn.addEventListener('click', () => {
+                const newName = dom.settingDeviceName.value.trim();
+                if (newName) {
+                    state.name = newName;
+                    localStorage.setItem('qs_device_name', newName);
+                    updateLocalDeviceUI();
+                    broadcastName();
+                }
+                state.soundEnabled = dom.settingSoundToggle.checked;
+                localStorage.setItem('qs_sound_enabled', state.soundEnabled);
+
+                try {
+                    const iceVal = dom.settingIceConfig.value.trim();
+                    if (iceVal) {
+                        state.iceServers = JSON.parse(iceVal);
+                        localStorage.setItem('qs_ice_servers', iceVal);
+                    } else {
+                        state.iceServers = [];
+                        localStorage.removeItem('qs_ice_servers');
+                    }
+                } catch(e) {
+                    showToast("ICE 伺服器 JSON 格式有誤，儲存失敗", "error");
+                    return;
+                }
+
+                closeModal(dom.settingsModal);
+                showToast("設定已順利儲存！連線將在下一次重啟時生效。", "success");
+            });
+        });
+
+    </script>
+</body>
+</html>
